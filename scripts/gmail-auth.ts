@@ -1,56 +1,58 @@
 /**
- * One-time OAuth setup: prints a URL, you authorize, paste the code, get refresh token.
- *
- * Usage: GMAIL_CLIENT_ID=... GMAIL_CLIENT_SECRET=... npm run gmail:auth
+ * One-time OAuth setup (CLI alternative to Settings → Connect Gmail).
+ * Loads .env from project root automatically.
  */
 import * as readline from "readline";
-import { google } from "googleapis";
+import fs from "fs";
+import path from "path";
+import { getGmailEnvStatus, exchangeCodeForRefreshToken } from "../src/lib/gmail-setup";
 
-const clientId = process.env.GMAIL_CLIENT_ID;
-const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-const redirectUri =
-  process.env.GMAIL_REDIRECT_URI ?? "http://localhost:3000/oauth2callback";
+const envPath = path.join(process.cwd(), ".env");
+if (fs.existsSync(envPath)) {
+  for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const i = t.indexOf("=");
+    if (i === -1) continue;
+    const key = t.slice(0, i).trim();
+    const val = t.slice(i + 1).trim();
+    if (!process.env[key]) process.env[key] = val;
+  }
+}
 
-if (!clientId || !clientSecret) {
-  console.error("Set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET in the environment.");
+const status = getGmailEnvStatus();
+
+if (!status.clientId || !status.clientSecret) {
+  console.error(
+    "Set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET in .env first.\nSee Settings in the app for Google Cloud setup steps.",
+  );
   process.exit(1);
 }
 
-const oauth2 = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-
-const scopes = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.modify",
-];
-
-const url = oauth2.generateAuthUrl({
-  access_type: "offline",
-  prompt: "consent",
-  scope: scopes,
-});
+if (!status.authUrl) {
+  console.error("Could not build auth URL.");
+  process.exit(1);
+}
 
 console.log("\nOpen this URL in your browser:\n");
-console.log(url);
-console.log("\n");
+console.log(status.authUrl);
+console.log(
+  "\nAfter approving, you will land on /oauth2callback with the refresh token to copy.\n",
+);
+console.log("Or paste the ?code= value from that URL here:\n");
 
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
 
-rl.question("Paste the authorization code here: ", async (code) => {
+rl.question("Authorization code: ", async (code) => {
   rl.close();
-  try {
-    const { tokens } = await oauth2.getToken(code.trim());
-    console.log("\nAdd to your .env:\n");
-    console.log(`GMAIL_REFRESH_TOKEN=${tokens.refresh_token ?? tokens.access_token}`);
-    if (!tokens.refresh_token) {
-      console.log(
-        "\nWarning: no refresh_token returned. Re-run with prompt=consent or revoke app access first.",
-      );
-    }
-  } catch (err) {
-    console.error("Token exchange failed:", err);
+  const result = await exchangeCodeForRefreshToken(code.trim());
+  if (!result.ok) {
+    console.error("Token exchange failed:", result.error);
     process.exit(1);
   }
+  console.log("\nAdd to your .env:\n");
+  console.log(`GMAIL_REFRESH_TOKEN=${result.refreshToken}`);
 });

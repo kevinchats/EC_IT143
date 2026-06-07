@@ -2,6 +2,7 @@ import { getDb } from "@/db";
 import { gmailSyncState } from "@/db/schema";
 import { SyncButton } from "@/components/SyncButton";
 import { isGmailConfigured } from "@/lib/gmail";
+import { getGmailEnvStatus } from "@/lib/gmail-setup";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export default async function SettingsPage() {
   const rows = await db.select().from(gmailSyncState).limit(1);
   const state = rows[0];
   const configured = isGmailConfigured();
+  const envStatus = getGmailEnvStatus();
 
   return (
     <div className="space-y-8">
@@ -33,12 +35,68 @@ export default async function SettingsPage() {
             {configured ? "Configured" : "Not configured"}
           </span>
         </p>
+
         {!configured && (
-          <p className="text-sm text-[var(--muted)]">
-            Copy <code>.env.example</code> to <code>.env</code>, set Google OAuth
-            credentials, then run <code>npm run gmail:auth</code> on the server.
-          </p>
+          <div className="space-y-3 text-sm">
+            <p className="text-[var(--muted)]">
+              Your <code>.env</code> file is missing values for:
+            </p>
+            <ul className="list-inside list-disc text-[var(--negative)]">
+              {envStatus.missing.map((m) => (
+                <li key={m}>{m}</li>
+              ))}
+            </ul>
+
+            <div className="rounded-lg bg-[#15202b] p-4 text-[var(--foreground)]">
+              <p className="mb-2 font-medium">Setup steps</p>
+              <ol className="list-inside list-decimal space-y-2 text-[var(--muted)]">
+                <li>
+                  Open{" "}
+                  <a
+                    href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Google Cloud Console
+                  </a>{" "}
+                  → enable <strong>Gmail API</strong>.
+                </li>
+                <li>
+                  Credentials → Create OAuth client → <strong>Web application</strong>.
+                </li>
+                <li>
+                  Authorized redirect URI:{" "}
+                  <code className="text-[var(--foreground)]">
+                    {envStatus.redirectUri}
+                  </code>
+                </li>
+                <li>
+                  Put <code>GMAIL_CLIENT_ID</code> and{" "}
+                  <code>GMAIL_CLIENT_SECRET</code> in <code>.env</code>, then
+                  restart the app.
+                </li>
+                <li>
+                  Click <strong>Connect Gmail</strong> below (or run{" "}
+                  <code>npm run gmail:auth</code>), then add{" "}
+                  <code>GMAIL_REFRESH_TOKEN</code> to <code>.env</code> and
+                  restart again.
+                </li>
+              </ol>
+            </div>
+
+            {envStatus.authUrl ? (
+              <a href={envStatus.authUrl} className="btn btn-primary inline-flex">
+                Connect Gmail
+              </a>
+            ) : (
+              <p className="text-[var(--muted)]">
+                Add client ID and secret to <code>.env</code> first, then restart
+                — the Connect Gmail button will appear here.
+              </p>
+            )}
+          </div>
         )}
+
         {state?.lastSyncAt && (
           <p className="text-sm">
             Last sync: {new Date(state.lastSyncAt).toLocaleString("en-ZA")}
@@ -51,10 +109,12 @@ export default async function SettingsPage() {
             Last errors: {state.lastError}
           </p>
         )}
-        <div className="flex flex-wrap gap-4">
-          <SyncButton />
-          <SyncButton label="Backfill (90 days)" backfill />
-        </div>
+        {configured && (
+          <div className="flex flex-wrap gap-4">
+            <SyncButton />
+            <SyncButton label="Backfill (90 days)" backfill />
+          </div>
+        )}
       </div>
 
       <div className="card space-y-3">

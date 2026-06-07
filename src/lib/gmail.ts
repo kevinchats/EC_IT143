@@ -27,9 +27,9 @@ function getOAuth2Client() {
 
 export function isGmailConfigured(): boolean {
   return Boolean(
-    process.env.GMAIL_CLIENT_ID &&
-      process.env.GMAIL_CLIENT_SECRET &&
-      process.env.GMAIL_REFRESH_TOKEN,
+    process.env.GMAIL_CLIENT_ID?.trim() &&
+      process.env.GMAIL_CLIENT_SECRET?.trim() &&
+      process.env.GMAIL_REFRESH_TOKEN?.trim(),
   );
 }
 
