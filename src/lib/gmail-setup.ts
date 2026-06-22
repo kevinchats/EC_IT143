@@ -49,9 +49,28 @@ export function getGmailEnvStatus(): GmailEnvStatus {
   };
 }
 
+/** Accept raw code or full redirect URL (?code=...). */
+export function parseAuthCode(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return trimmed;
+  try {
+    if (trimmed.includes("code=")) {
+      const url = trimmed.startsWith("http")
+        ? new URL(trimmed)
+        : new URL(trimmed, "http://localhost");
+      const fromQuery = url.searchParams.get("code");
+      if (fromQuery) return fromQuery;
+    }
+  } catch {
+    // fall through
+  }
+  return trimmed;
+}
+
 export async function exchangeCodeForRefreshToken(
-  code: string,
+  rawCode: string,
 ): Promise<{ ok: true; refreshToken: string } | { ok: false; error: string }> {
+  const code = parseAuthCode(rawCode);
   const clientId = process.env.GMAIL_CLIENT_ID?.trim();
   const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
   const redirectUri =
@@ -66,10 +85,51 @@ export async function exchangeCodeForRefreshToken(
     };
   }
 
+  if (!code) {
+    return { ok: false, error: "Authorization code is empty." };
+  }
+
   try {
-    const oauth2 = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-    const { tokens } = await oauth2.getToken(code);
-    const refreshToken = tokens.refresh_token;
+    const body = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    });
+
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+
+    const text = await res.text();
+    let data: { refresh_token?: string; error?: string; error_description?: string };
+    try {
+      data = JSON.parse(text) as typeof data;
+    } catch {
+      return {
+        ok: false,
+        error: `Google token response was not JSON (HTTP ${res.status}). Try again with a fresh code within 10 minutes.`,
+      };
+    }
+
+    if (!res.ok) {
+      const detail = data.error_description ?? data.error ?? text;
+      if (data.error === "invalid_grant") {
+        return {
+          ok: false,
+          error: `invalid_grant — code expired or already used. Open Connect Gmail again and use the new code immediately. (${detail})`,
+        };
+      }
+      return {
+        ok: false,
+        error: `Token exchange failed (HTTP ${res.status}): ${detail}`,
+      };
+    }
+
+    const refreshToken = data.refresh_token;
     if (!refreshToken) {
       return {
         ok: false,

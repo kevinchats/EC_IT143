@@ -39,7 +39,7 @@ console.log(status.authUrl);
 console.log(
   "\nAfter approving, you will land on /oauth2callback with the refresh token to copy.\n",
 );
-console.log("Or paste the ?code= value from that URL here:\n");
+console.log("Or paste the ?code= value from that URL here (full redirect URL also works):\n");
 
 const rl = readline.createInterface({
   input: process.stdin,
