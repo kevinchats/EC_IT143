@@ -27,13 +27,12 @@ export function SyncButton({
       if (!data.ok && data.message) {
         setMessage(data.message);
       } else {
-        setMessage(
-          `Processed ${data.processed}, added ${data.inserted}, skipped ${data.skipped}`,
-        );
-        onDone?.();
-      }
-      if (data.errors?.length) {
-        setMessage((m) => `${m ?? ""} — ${data.errors[0]}`);
+        let msg = `Processed ${data.processed}, added ${data.inserted}, skipped ${data.skipped}`;
+        if (data.errors?.length) {
+          msg += ` — ${data.errors[0]}`;
+        }
+        setMessage(msg);
+        if (data.inserted > 0) onDone?.();
       }
     } catch {
       setMessage("Sync failed");

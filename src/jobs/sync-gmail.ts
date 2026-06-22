@@ -40,14 +40,36 @@ export async function syncGmailPayments(options?: {
 
   const stateRows = await db.select().from(gmailSyncState).limit(1);
   const hasSyncedBefore = Boolean(stateRows[0]?.lastSyncAt);
-  const backfillDays = options?.backfillDays ?? Number(process.env.GMAIL_BACKFILL_DAYS ?? 90);
+  const backfillDays =
+    options?.backfillDays ?? Number(process.env.GMAIL_BACKFILL_DAYS ?? 365);
   const unreadOnly = options?.unreadOnly ?? hasSyncedBefore;
 
-  const messages = await listPaymentMessages({
-    unreadOnly,
-    newerThanDays: hasSyncedBefore ? undefined : backfillDays,
-    maxResults: 100,
-  });
+  let messages: Awaited<ReturnType<typeof listPaymentMessages>> = [];
+  try {
+    messages = await listPaymentMessages({
+      unreadOnly,
+      newerThanDays: hasSyncedBefore ? undefined : backfillDays,
+      maxResults: 100,
+    });
+
+    // First sync: if date filter hid older emails, retry without date limit
+    if (!hasSyncedBefore && messages.length === 0 && backfillDays > 0) {
+      messages = await listPaymentMessages({
+        unreadOnly: false,
+        maxResults: 100,
+      });
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      processed: 0,
+      inserted: 0,
+      skipped: 0,
+      errors: [msg],
+      message: `Gmail API error: ${msg}`,
+    };
+  }
 
   const studentRows = await db.select().from(students);
   const refMap = new Map(

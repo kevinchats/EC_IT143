@@ -7,6 +7,7 @@ export type GmailMessagePayload = {
   subject: string;
   text: string;
   html: string;
+  pdfText: string;
 };
 
 function getOAuth2Client() {
@@ -44,19 +45,23 @@ function decodeBase64Url(data: string): string {
   return Buffer.from(normalized, "base64").toString("utf8");
 }
 
-function extractBodies(payload: {
+function decodeBase64UrlBuffer(data: string): Buffer {
+  const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(normalized, "base64");
+}
+
+type MimePart = {
   mimeType?: string | null;
-  body?: { data?: string | null } | null;
-  parts?: Array<{
-    mimeType?: string | null;
-    body?: { data?: string | null } | null;
-    parts?: unknown[];
-  }> | null;
-}): { text: string; html: string } {
+  filename?: string | null;
+  body?: { data?: string | null; attachmentId?: string | null } | null;
+  parts?: MimePart[] | null;
+};
+
+function extractBodies(payload: MimePart): { text: string; html: string } {
   let text = "";
   let html = "";
 
-  function walk(part: typeof payload) {
+  function walk(part: MimePart) {
     if (!part) return;
     const mime = part.mimeType ?? "";
     const data = part.body?.data;
@@ -66,12 +71,54 @@ function extractBodies(payload: {
       else if (mime.includes("text/html")) html += decoded;
     }
     if (part.parts) {
-      for (const p of part.parts as typeof payload[]) walk(p);
+      for (const p of part.parts) walk(p);
     }
   }
 
   walk(payload);
   return { text, html };
+}
+
+function findPdfParts(payload: MimePart, out: MimePart[] = []): MimePart[] {
+  if (
+    payload.filename?.toLowerCase().endsWith(".pdf") &&
+    payload.body?.attachmentId
+  ) {
+    out.push(payload);
+  }
+  if (payload.parts) {
+    for (const p of payload.parts) findPdfParts(p, out);
+  }
+  return out;
+}
+
+async function extractPdfText(
+  gmail: ReturnType<typeof google.gmail>,
+  messageId: string,
+  payload: MimePart,
+): Promise<string> {
+  const pdfParts = findPdfParts(payload);
+  if (pdfParts.length === 0) return "";
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pdfParse = require("pdf-parse") as (
+    buf: Buffer,
+  ) => Promise<{ text: string }>;
+
+  const chunks: string[] = [];
+  for (const part of pdfParts) {
+    const attachmentId = part.body?.attachmentId;
+    if (!attachmentId) continue;
+    const att = await gmail.users.messages.attachments.get({
+      userId: "me",
+      messageId,
+      id: attachmentId,
+    });
+    const buf = decodeBase64UrlBuffer(att.data.data ?? "");
+    const parsed = await pdfParse(buf);
+    chunks.push(parsed.text);
+  }
+  return chunks.join("\n");
 }
 
 export async function listPaymentMessages(options?: {
@@ -86,7 +133,7 @@ export async function listPaymentMessages(options?: {
   const newerThanDays = options?.newerThanDays;
   let q = GMAIL_SEARCH_QUERY;
   if (unreadOnly) q += " is:unread";
-  if (newerThanDays) q += ` newer_than:${newerThanDays}d`;
+  if (newerThanDays && newerThanDays > 0) q += ` newer_than:${newerThanDays}d`;
 
   const listRes = await gmail.users.messages.list({
     userId: "me",
@@ -109,10 +156,15 @@ export async function listPaymentMessages(options?: {
     const subject =
       headers.find((h) => h.name?.toLowerCase() === "subject")?.value ?? "";
     const { text, html } = extractBodies(full.data.payload ?? {});
+    const pdfText = await extractPdfText(
+      gmail,
+      m.id,
+      full.data.payload ?? {},
+    );
 
-    if (!looksLikePaymentEmail(text, html)) continue;
+    if (!looksLikePaymentEmail(text, html, pdfText)) continue;
 
-    out.push({ id: m.id, subject, text, html });
+    out.push({ id: m.id, subject, text, html, pdfText });
   }
 
   return out;
@@ -130,5 +182,5 @@ export async function markMessageRead(messageId: string): Promise<void> {
 }
 
 export function parseGmailMessage(msg: GmailMessagePayload) {
-  return parsePaymentFromBody(msg.text, msg.html);
+  return parsePaymentFromBody(msg.text, msg.html, msg.pdfText);
 }
