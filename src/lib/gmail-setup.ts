@@ -49,6 +49,74 @@ export function getGmailEnvStatus(): GmailEnvStatus {
   };
 }
 
+type TokenCache = { accessToken: string; expiresAt: number };
+let accessTokenCache: TokenCache | null = null;
+
+function getOAuthCredentials() {
+  const clientId = process.env.GMAIL_CLIENT_ID?.trim();
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN?.trim();
+  if (!clientId || !clientSecret || !refreshToken) return null;
+  return { clientId, clientSecret, refreshToken };
+}
+
+/** Refresh access token via fetch (avoids googleapis/gaxios premature close). */
+export async function refreshGoogleAccessToken(): Promise<string> {
+  const now = Date.now();
+  if (accessTokenCache && accessTokenCache.expiresAt > now + 60_000) {
+    return accessTokenCache.accessToken;
+  }
+
+  const creds = getOAuthCredentials();
+  if (!creds) {
+    throw new Error("Gmail not configured — set GMAIL_* in .env");
+  }
+
+  const body = new URLSearchParams({
+    client_id: creds.clientId,
+    client_secret: creds.clientSecret,
+    refresh_token: creds.refreshToken,
+    grant_type: "refresh_token",
+  });
+
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  const text = await res.text();
+  let data: {
+    access_token?: string;
+    expires_in?: number;
+    error?: string;
+    error_description?: string;
+  };
+  try {
+    data = JSON.parse(text) as typeof data;
+  } catch {
+    throw new Error(
+      `Google token response was not JSON (HTTP ${res.status}). ${text.slice(0, 120)}`,
+    );
+  }
+
+  if (!res.ok || !data.access_token) {
+    const detail = data.error_description ?? data.error ?? text;
+    if (data.error === "invalid_grant") {
+      throw new Error(
+        `Gmail refresh token expired or revoked — run Connect Gmail again. (${detail})`,
+      );
+    }
+    throw new Error(`Token refresh failed (HTTP ${res.status}): ${detail}`);
+  }
+
+  accessTokenCache = {
+    accessToken: data.access_token,
+    expiresAt: now + (data.expires_in ?? 3600) * 1000,
+  };
+  return accessTokenCache.accessToken;
+}
+
 /** Accept raw code or full redirect URL (?code=...). */
 export function parseAuthCode(input: string): string {
   const trimmed = input.trim();

@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { GMAIL_SEARCH_QUERY } from "./constants";
+import { refreshGoogleAccessToken } from "./gmail-setup";
 import { looksLikePaymentEmail, parsePaymentFromBody } from "./parse-payment";
 
 export type GmailMessagePayload = {
@@ -10,22 +11,6 @@ export type GmailMessagePayload = {
   pdfText: string;
 };
 
-function getOAuth2Client() {
-  const clientId = process.env.GMAIL_CLIENT_ID;
-  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
-  const redirectUri =
-    process.env.GMAIL_REDIRECT_URI ?? "http://localhost:3000/oauth2callback";
-
-  if (!clientId || !clientSecret || !refreshToken) {
-    return null;
-  }
-
-  const oauth2 = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-  oauth2.setCredentials({ refresh_token: refreshToken });
-  return oauth2;
-}
-
 export function isGmailConfigured(): boolean {
   return Boolean(
     process.env.GMAIL_CLIENT_ID?.trim() &&
@@ -34,10 +19,27 @@ export function isGmailConfigured(): boolean {
   );
 }
 
-export function getGmailClient() {
-  const auth = getOAuth2Client();
-  if (!auth) return null;
-  return google.gmail({ version: "v1", auth });
+async function getGmailClient() {
+  const clientId = process.env.GMAIL_CLIENT_ID?.trim();
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN?.trim();
+  const redirectUri =
+    process.env.GMAIL_REDIRECT_URI?.trim() ??
+    "http://localhost:3000/oauth2callback";
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    return null;
+  }
+
+  const accessToken = await refreshGoogleAccessToken();
+  const oauth2 = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  oauth2.setCredentials({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expiry_date: Date.now() + 3500 * 1000,
+  });
+
+  return google.gmail({ version: "v1", auth: oauth2 });
 }
 
 function decodeBase64Url(data: string): string {
@@ -93,7 +95,7 @@ function findPdfParts(payload: MimePart, out: MimePart[] = []): MimePart[] {
 }
 
 async function extractPdfText(
-  gmail: ReturnType<typeof google.gmail>,
+  gmail: NonNullable<Awaited<ReturnType<typeof getGmailClient>>>,
   messageId: string,
   payload: MimePart,
 ): Promise<string> {
@@ -126,7 +128,7 @@ export async function listPaymentMessages(options?: {
   newerThanDays?: number;
   maxResults?: number;
 }): Promise<GmailMessagePayload[]> {
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   if (!gmail) return [];
 
   const unreadOnly = options?.unreadOnly ?? true;
@@ -172,7 +174,7 @@ export async function listPaymentMessages(options?: {
 
 export async function markMessageRead(messageId: string): Promise<void> {
   if (process.env.GMAIL_MARK_READ === "false") return;
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   if (!gmail) return;
   await gmail.users.messages.modify({
     userId: "me",
