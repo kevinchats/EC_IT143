@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { BusinessTagChart } from "@/components/BusinessTagChart";
 import { IncomeExpenseChart } from "@/components/IncomeExpenseChart";
 import { NetTrendChart } from "@/components/NetTrendChart";
 import { SyncButton } from "@/components/SyncButton";
 import { EXPENSE_CATEGORY_LABELS } from "@/lib/constants";
+import { BUSINESS_TAGS, type BusinessTag } from "@/lib/business-tags";
 import {
   getAllTimeTotals,
+  getBusinessChartData,
   getBusinessTagSummaries,
   getChartData,
   getExpenseTotalsByCategory,
@@ -17,6 +20,8 @@ import { centsToRand, formatDate } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
 
+const CHART_TAGS: BusinessTag[] = ["accommodation", "chatcom"];
+
 export default async function DashboardPage() {
   const [
     totals,
@@ -26,6 +31,7 @@ export default async function DashboardPage() {
     chartData,
     netTrend,
     tagSummaries,
+    businessCharts,
     byCategory,
   ] = await Promise.all([
     getMonthlyTotals(),
@@ -35,6 +41,7 @@ export default async function DashboardPage() {
     getChartData(12),
     getNetTrend(12),
     getBusinessTagSummaries(),
+    getBusinessChartData(6),
     getExpenseTotalsByCategory(),
   ]);
 
@@ -114,6 +121,27 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      <div>
+        <h2 className="mb-3 text-lg font-semibold">Business trends</h2>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {CHART_TAGS.map((tag) => (
+            <div key={tag} className="card">
+              <h3
+                className="mb-4 text-base font-semibold"
+                style={{ color: BUSINESS_TAGS[tag].color }}
+              >
+                {BUSINESS_TAGS[tag].label}
+              </h3>
+              <BusinessTagChart
+                data={businessCharts[tag]}
+                color={BUSINESS_TAGS[tag].color}
+                title={BUSINESS_TAGS[tag].label}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="card">
         <p className="stat-label">All-time net</p>
         <p
@@ -125,7 +153,7 @@ export default async function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="card">
-          <h2 className="mb-4 text-lg font-semibold">Money in vs out</h2>
+          <h2 className="mb-4 text-lg font-semibold">Overall money in vs out</h2>
           <IncomeExpenseChart data={chartData} />
         </div>
         <div className="card">

@@ -163,6 +163,50 @@ export async function getBusinessTagSummaries(
   });
 }
 
+export async function getBusinessChartData(monthsBack = 6) {
+  const db = getDb();
+  const paymentRows = await db.select().from(payments);
+
+  const now = new Date();
+  const keys: string[] = [];
+  for (let i = monthsBack - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    keys.push(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+    );
+  }
+
+  const tags = Object.keys(BUSINESS_TAGS) as BusinessTag[];
+  const result = {} as Record<
+    BusinessTag,
+    Array<{ label: string; income: number; expenses: number }>
+  >;
+
+  for (const tag of tags) {
+    result[tag] = keys.map((month) => {
+      const tagged = paymentRows.filter(
+        (p) => p.businessTag === tag && monthKey(p.paymentDate) === month,
+      );
+      const income = tagged
+        .filter((p) => p.direction === "in")
+        .reduce((s, p) => s + p.amountCents, 0);
+      const expenses = tagged
+        .filter((p) => p.direction === "out")
+        .reduce((s, p) => s + p.amountCents, 0);
+      return {
+        label: new Date(month + "-01T12:00:00").toLocaleDateString("en-ZA", {
+          month: "short",
+          year: "2-digit",
+        }),
+        income: income / 100,
+        expenses: expenses / 100,
+      };
+    });
+  }
+
+  return result;
+}
+
 export async function getNetTrend(monthsBack = 12) {
   const chart = await getChartData(monthsBack);
   let cumulative = 0;

@@ -120,6 +120,37 @@ table.data th {
   font-size: 0.85rem;
 }
 
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.nav-link:hover {
+  color: var(--foreground);
+  background: #15202b;
+}
+
+.nav-link-active {
+  color: #ffffff !important;
+  background: #1d9bf0 !important;
+  border-color: #6bc4ff;
+  font-weight: 600;
+  box-shadow: 0 0 0 1px #6bc4ff;
+}
+
+.nav-link-active:hover {
+  color: #ffffff;
+  background: #1a8cd8;
+}
+
 .tag-column {
   background: var(--card);
   border: 1px solid var(--card-border);

@@ -1,7 +1,16 @@
 import { eq, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import { gmailSyncState, payments } from "@/db/schema";
-import { autoTag, paymentDedupeKey } from "@/lib/business-tags";
+import {
+  autoTag,
+  isExpenseOnlyIncoming,
+  paymentDedupeKey,
+} from "@/lib/business-tags";
+import {
+  cleanupMirroredPayments,
+  hasMirrorOut,
+  retagUncategorized,
+} from "@/lib/payment-cleanup";
 import {
   isGmailConfigured,
   listPaymentMessages,
@@ -79,6 +88,18 @@ export async function syncGmailPayments(options?: {
     }
 
     const label = parsed.counterpartyRef;
+
+    if (parsed.direction === "in") {
+      if (isExpenseOnlyIncoming(label)) {
+        skipped++;
+        continue;
+      }
+      if (await hasMirrorOut(db, parsed.paymentDate, parsed.amountCents, label)) {
+        skipped++;
+        continue;
+      }
+    }
+
     const dedupeKey = paymentDedupeKey(
       parsed.direction,
       parsed.paymentDate,
@@ -122,6 +143,9 @@ export async function syncGmailPayments(options?: {
       errors.push(`Saved but could not mark read: ${msg.id}`);
     }
   }
+
+  await cleanupMirroredPayments(db);
+  await retagUncategorized(db);
 
   const now = new Date().toISOString();
   const stateUpdate = {
