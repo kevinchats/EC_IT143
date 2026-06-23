@@ -1,49 +1,55 @@
 import Link from "next/link";
 import { IncomeExpenseChart } from "@/components/IncomeExpenseChart";
 import { SyncButton } from "@/components/SyncButton";
+import { EXPENSE_CATEGORY_LABELS } from "@/lib/constants";
 import {
+  getAllTimeTotals,
   getChartData,
+  getExpenseTotalsByCategory,
   getMonthlyTotals,
   getRecentExpenses,
   getRecentPayments,
-  getRoomDashboardRows,
 } from "@/lib/dashboard-data";
 import { centsToRand, formatDate } from "@/lib/money";
-import { EXPENSE_CATEGORY_LABELS } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
-  const [totals, roomRows, recentPayments, recentExpenses, chartData] =
+  const [totals, allTime, recentPayments, recentExpenses, chartData, byCategory] =
     await Promise.all([
       getMonthlyTotals(),
-      getRoomDashboardRows(),
+      getAllTimeTotals(),
       getRecentPayments(10),
       getRecentExpenses(10),
       getChartData(6),
+      getExpenseTotalsByCategory(),
     ]);
+
+  const topCategories = [...byCategory.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Overview</h1>
+          <h1 className="text-2xl font-bold">Cash flow</h1>
           <p className="text-[var(--muted)]">
-            {totals.month} — income, expenses, and room balances
+            What came in vs what went out — {totals.month}
           </p>
         </div>
-        <SyncButton />
+        <SyncButton label="Sync bank payments" />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="card">
-          <p className="stat-label">Income this month</p>
+          <p className="stat-label">Money in this month</p>
           <p className="stat-value text-[var(--positive)]">
             {centsToRand(totals.incomeCents)}
           </p>
         </div>
         <div className="card">
-          <p className="stat-label">Expenses this month</p>
+          <p className="stat-label">Money out this month</p>
           <p className="stat-value text-[var(--negative)]">
             {centsToRand(totals.expenseCents)}
           </p>
@@ -59,82 +65,64 @@ export default async function OverviewPage() {
       </div>
 
       <div className="card">
-        <h2 className="mb-4 text-lg font-semibold">Income vs expenses</h2>
+        <p className="stat-label">All-time net position</p>
+        <p
+          className={`text-xl font-semibold ${allTime.netCents >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}
+        >
+          {centsToRand(allTime.netCents)}{" "}
+          <span className="text-base font-normal text-[var(--muted)]">
+            ({centsToRand(allTime.incomeCents)} in · {centsToRand(allTime.expenseCents)} out)
+          </span>
+        </p>
+      </div>
+
+      <div className="card">
+        <h2 className="mb-4 text-lg font-semibold">Money in vs money out</h2>
         <IncomeExpenseChart data={chartData} />
       </div>
 
-      <div className="card overflow-x-auto">
-        <h2 className="mb-4 text-lg font-semibold">Rooms</h2>
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Room</th>
-              <th>Student</th>
-              <th>Reference</th>
-              <th>Last payment</th>
-              <th>Balance</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {roomRows.map((row) => (
-              <tr key={row.room.id}>
-                <td>{row.room.label}</td>
-                <td>{row.student?.name ?? "—"}</td>
-                <td className="font-mono text-sm">
-                  {row.student?.studentRef ?? "—"}
-                </td>
-                <td>
-                  {row.lastPaymentDate
-                    ? formatDate(row.lastPaymentDate)
-                    : "—"}
-                </td>
-                <td
-                  className={
-                    row.balanceCents > 0
-                      ? "text-[var(--negative)]"
-                      : "text-[var(--positive)]"
-                  }
-                >
-                  {row.student ? centsToRand(row.balanceCents) : "—"}
-                </td>
-                <td>
-                  {!row.student ? (
-                    <span className="text-[var(--muted)]">Vacant</span>
-                  ) : row.overdue ? (
-                    <span className="badge badge-overdue">Overdue</span>
-                  ) : (
-                    <span className="badge badge-ok">OK</span>
-                  )}
-                </td>
-              </tr>
+      {topCategories.length > 0 && (
+        <div className="card">
+          <h2 className="mb-4 text-lg font-semibold">Spending this month by category</h2>
+          <ul className="space-y-2">
+            {topCategories.map(([cat, cents]) => (
+              <li key={cat} className="flex justify-between text-sm">
+                <span>{EXPENSE_CATEGORY_LABELS[cat] ?? cat}</span>
+                <span className="text-[var(--negative)]">{centsToRand(cents)}</span>
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </ul>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="card">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Recent payments</h2>
+            <h2 className="text-lg font-semibold">Recent money in</h2>
             <Link href="/payments" className="text-sm">
               View all
             </Link>
           </div>
           <table className="data">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>From</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
             <tbody>
               {recentPayments.length === 0 ? (
                 <tr>
-                  <td className="text-[var(--muted)]">No payments yet</td>
+                  <td colSpan={3} className="text-[var(--muted)]">
+                    No payments yet — sync Gmail or add manually
+                  </td>
                 </tr>
               ) : (
-                recentPayments.map(({ payment, student, room }) => (
+                recentPayments.map(({ payment }) => (
                   <tr key={payment.id}>
                     <td>{formatDate(payment.paymentDate)}</td>
-                    <td>
-                      {student.name}{" "}
-                      <span className="text-[var(--muted)]">({room.label})</span>
-                    </td>
+                    <td>{payment.payerLabel}</td>
                     <td className="text-[var(--positive)]">
                       {centsToRand(payment.amountCents)}
                     </td>
@@ -147,25 +135,33 @@ export default async function OverviewPage() {
 
         <div className="card">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Recent expenses</h2>
+            <h2 className="text-lg font-semibold">Recent money out</h2>
             <Link href="/expenses" className="text-sm">
               View all
             </Link>
           </div>
           <table className="data">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
             <tbody>
               {recentExpenses.length === 0 ? (
                 <tr>
-                  <td className="text-[var(--muted)]">No expenses yet</td>
+                  <td colSpan={3} className="text-[var(--muted)]">
+                    No expenses yet
+                  </td>
                 </tr>
               ) : (
                 recentExpenses.map(({ expense, room }) => (
                   <tr key={expense.id}>
                     <td>{formatDate(expense.expenseDate)}</td>
                     <td>
-                      {EXPENSE_CATEGORY_LABELS[expense.category] ??
-                        expense.category}
-                      {room ? ` · ${room.label}` : " · Shared"}
+                      {expense.description}
+                      {room ? ` · ${room.label}` : ""}
                     </td>
                     <td className="text-[var(--negative)]">
                       {centsToRand(expense.amountCents)}

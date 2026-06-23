@@ -25,9 +25,9 @@ export default async function ExpensesPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold">Expenses</h1>
+        <h1 className="text-2xl font-bold">Money out</h1>
         <p className="text-[var(--muted)]">
-          Manually record property costs. Leave room empty for shared expenses.
+          Record what you paid — utilities, maintenance, and other property costs.
         </p>
       </div>
 

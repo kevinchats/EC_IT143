@@ -88,11 +88,6 @@ export async function syncGmailPayments(options?: {
     }
 
     const student = refMap.get(parsed.studentId.toLowerCase());
-    if (!student) {
-      skipped++;
-      errors.push(`No student for reference "${parsed.studentId}" (message ${msg.id})`);
-      continue;
-    }
 
     const existing = await db
       .select({ id: payments.id })
@@ -106,7 +101,8 @@ export async function syncGmailPayments(options?: {
     }
 
     await db.insert(payments).values({
-      studentId: student.id,
+      studentId: student?.id ?? null,
+      payerLabel: student?.name ?? parsed.studentId,
       amountCents: parsed.amountCents,
       paymentDate: parsed.paymentDate,
       gmailMessageId: msg.id,

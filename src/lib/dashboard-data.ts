@@ -1,16 +1,6 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import {
-  expenses,
-  payments,
-  rooms,
-  students,
-} from "@/db/schema";
-import {
-  computeBalanceCents,
-  computeExpectedCents,
-  isOverdue,
-} from "./balances";
+import { expenses, payments, rooms, students } from "@/db/schema";
 import { monthKey, todayIso } from "./money";
 
 export async function getPaymentTotalsByStudent() {
@@ -22,58 +12,18 @@ export async function getPaymentTotalsByStudent() {
       lastPaymentDate: sql<string | null>`max(${payments.paymentDate})`,
     })
     .from(payments)
+    .where(sql`${payments.studentId} is not null`)
     .groupBy(payments.studentId);
 
   return new Map(
     rows.map((r) => [
-      r.studentId,
+      r.studentId!,
       {
         totalCents: Number(r.totalCents ?? 0),
         lastPaymentDate: r.lastPaymentDate,
       },
     ]),
   );
-}
-
-export async function getRoomDashboardRows() {
-  const db = getDb();
-  const roomRows = await db
-    .select()
-    .from(rooms)
-    .orderBy(rooms.sortOrder, rooms.label);
-  const studentRows = await db
-    .select()
-    .from(students)
-    .where(eq(students.active, true));
-  const paidMap = await getPaymentTotalsByStudent();
-  const today = todayIso();
-
-  return roomRows.map((room) => {
-    const student = studentRows.find((s) => s.roomId === room.id);
-    if (!student) {
-      return {
-        room,
-        student: null,
-        expectedCents: 0,
-        paidCents: 0,
-        balanceCents: 0,
-        lastPaymentDate: null,
-        overdue: false,
-      };
-    }
-    const paid = paidMap.get(student.id)?.totalCents ?? 0;
-    const lastPaymentDate = paidMap.get(student.id)?.lastPaymentDate ?? null;
-    const balanceCents = computeBalanceCents(student, paid, today);
-    return {
-      room,
-      student,
-      expectedCents: computeExpectedCents(student, today),
-      paidCents: paid,
-      balanceCents,
-      lastPaymentDate,
-      overdue: isOverdue(balanceCents, lastPaymentDate, today),
-    };
-  });
 }
 
 export async function getMonthlyTotals(month = monthKey(todayIso())) {
@@ -90,6 +40,19 @@ export async function getMonthlyTotals(month = monthKey(todayIso())) {
     .reduce((s, e) => s + e.amountCents, 0);
 
   return { incomeCents, expenseCents, netCents: incomeCents - expenseCents, month };
+}
+
+export async function getAllTimeTotals() {
+  const db = getDb();
+  const [paymentSum] = await db
+    .select({ total: sql<number>`coalesce(sum(${payments.amountCents}), 0)` })
+    .from(payments);
+  const [expenseSum] = await db
+    .select({ total: sql<number>`coalesce(sum(${expenses.amountCents}), 0)` })
+    .from(expenses);
+  const incomeCents = Number(paymentSum?.total ?? 0);
+  const expenseCents = Number(expenseSum?.total ?? 0);
+  return { incomeCents, expenseCents, netCents: incomeCents - expenseCents };
 }
 
 export async function getChartData(monthsBack = 6) {
@@ -134,8 +97,8 @@ export async function getRecentPayments(limit = 10) {
       room: rooms,
     })
     .from(payments)
-    .innerJoin(students, eq(payments.studentId, students.id))
-    .innerJoin(rooms, eq(students.roomId, rooms.id))
+    .leftJoin(students, eq(payments.studentId, students.id))
+    .leftJoin(rooms, eq(students.roomId, rooms.id))
     .orderBy(desc(payments.paymentDate), desc(payments.id))
     .limit(limit);
 }
@@ -151,4 +114,15 @@ export async function getRecentExpenses(limit = 10) {
     .leftJoin(rooms, eq(expenses.roomId, rooms.id))
     .orderBy(desc(expenses.expenseDate), desc(expenses.id))
     .limit(limit);
+}
+
+export async function getExpenseTotalsByCategory(month = monthKey(todayIso())) {
+  const db = getDb();
+  const rows = await db.select().from(expenses);
+  const map = new Map<string, number>();
+  for (const e of rows) {
+    if (monthKey(e.expenseDate) !== month) continue;
+    map.set(e.category, (map.get(e.category) ?? 0) + e.amountCents);
+  }
+  return map;
 }

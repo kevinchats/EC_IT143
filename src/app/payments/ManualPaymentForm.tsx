@@ -4,11 +4,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { randToCents, todayIso } from "@/lib/money";
 
-type StudentOption = { id: number; name: string; studentRef: string };
-
-export function ManualPaymentForm({ students }: { students: StudentOption[] }) {
+export function ManualPaymentForm() {
   const router = useRouter();
-  const [studentId, setStudentId] = useState(String(students[0]?.id ?? ""));
+  const [payerLabel, setPayerLabel] = useState("");
   const [amount, setAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState(todayIso());
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +20,7 @@ export function ManualPaymentForm({ students }: { students: StudentOption[] }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        studentId: Number(studentId),
+        payerLabel,
         amountCents: randToCents(amount),
         paymentDate,
       }),
@@ -33,34 +31,23 @@ export function ManualPaymentForm({ students }: { students: StudentOption[] }) {
       setLoading(false);
       return;
     }
+    setPayerLabel("");
     setAmount("");
     router.refresh();
     setLoading(false);
   }
 
-  if (students.length === 0) {
-    return (
-      <p className="text-sm text-[var(--muted)]">
-        Add a student first under Students & rooms.
-      </p>
-    );
-  }
-
   return (
     <form onSubmit={submit} className="space-y-4">
       <label className="block text-sm">
-        Student
-        <select
+        Paid by (name or bank reference)
+        <input
           className="mt-1"
-          value={studentId}
-          onChange={(e) => setStudentId(e.target.value)}
-        >
-          {students.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} ({s.studentRef})
-            </option>
-          ))}
-        </select>
+          placeholder="e.g. Room 3 — Thabo"
+          value={payerLabel}
+          onChange={(e) => setPayerLabel(e.target.value)}
+          required
+        />
       </label>
       <label className="block text-sm">
         Amount (ZAR)

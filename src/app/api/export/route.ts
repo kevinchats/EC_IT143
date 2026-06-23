@@ -27,21 +27,19 @@ export async function GET(request: Request) {
         room: rooms,
       })
       .from(payments)
-      .innerJoin(students, eq(payments.studentId, students.id))
-      .innerJoin(rooms, eq(students.roomId, rooms.id))
+      .leftJoin(students, eq(payments.studentId, students.id))
+      .leftJoin(rooms, eq(students.roomId, rooms.id))
       .orderBy(desc(payments.paymentDate));
 
-    lines.push("--- PAYMENTS ---");
+    lines.push("--- PAYMENTS (MONEY IN) ---");
     lines.push(
-      ["Date", "Student", "Reference", "Room", "Amount", "Source", "Gmail ID"].join(","),
+      ["Date", "From", "Amount", "Source", "Gmail ID"].join(","),
     );
     for (const r of rows) {
       lines.push(
         [
           r.payment.paymentDate,
-          r.student.name,
-          r.student.studentRef,
-          r.room.label,
+          r.payment.payerLabel,
           centsToRand(r.payment.amountCents),
           r.payment.source,
           r.payment.gmailMessageId ?? "",
@@ -63,7 +61,7 @@ export async function GET(request: Request) {
       .leftJoin(rooms, eq(expenses.roomId, rooms.id))
       .orderBy(desc(expenses.expenseDate));
 
-    lines.push("--- EXPENSES ---");
+    lines.push("--- EXPENSES (MONEY OUT) ---");
     lines.push(
       ["Date", "Category", "Description", "Room", "Amount"].join(","),
     );

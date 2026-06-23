@@ -3,8 +3,8 @@ import { Nav } from "@/components/Nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Student Rental Tracker",
-  description: "Payment and expense dashboard for student accommodation",
+  title: "Rental Cash Flow",
+  description: "Track money in and money out for student accommodation",
 };
 
 export default function RootLayout({

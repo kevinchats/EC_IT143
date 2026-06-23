@@ -47,9 +47,10 @@ export const payments = sqliteTable(
   "payments",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    studentId: integer("student_id")
-      .notNull()
-      .references(() => students.id, { onDelete: "restrict" }),
+    studentId: integer("student_id").references(() => students.id, {
+      onDelete: "set null",
+    }),
+    payerLabel: text("payer_label").notNull().default("Unknown"),
     amountCents: integer("amount_cents").notNull(),
     paymentDate: text("payment_date").notNull(),
     gmailMessageId: text("gmail_message_id"),
