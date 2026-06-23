@@ -1,7 +1,8 @@
-import { google } from "googleapis";
 import { GMAIL_SEARCH_QUERY } from "./constants";
 import { refreshGoogleAccessToken } from "./gmail-setup";
 import { looksLikePaymentEmail, parsePaymentFromBody } from "./parse-payment";
+
+const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 
 export type GmailMessagePayload = {
   id: string;
@@ -19,27 +20,34 @@ export function isGmailConfigured(): boolean {
   );
 }
 
-async function getGmailClient() {
-  const clientId = process.env.GMAIL_CLIENT_ID?.trim();
-  const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
-  const refreshToken = process.env.GMAIL_REFRESH_TOKEN?.trim();
-  const redirectUri =
-    process.env.GMAIL_REDIRECT_URI?.trim() ??
-    "http://localhost:3000/oauth2callback";
-
-  if (!clientId || !clientSecret || !refreshToken) {
-    return null;
-  }
-
+async function gmailFetch<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
   const accessToken = await refreshGoogleAccessToken();
-  const oauth2 = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-  oauth2.setCredentials({
-    access_token: accessToken,
-    refresh_token: refreshToken,
-    expiry_date: Date.now() + 3500 * 1000,
+  const res = await fetch(`${GMAIL_API}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
   });
 
-  return google.gmail({ version: "v1", auth: oauth2 });
+  const text = await res.text();
+  if (!res.ok) {
+    let detail = text.slice(0, 200);
+    try {
+      const err = JSON.parse(text) as { error?: { message?: string } };
+      detail = err.error?.message ?? detail;
+    } catch {
+      // keep raw snippet
+    }
+    throw new Error(`Gmail API ${res.status}: ${detail}`);
+  }
+
+  if (!text) return {} as T;
+  return JSON.parse(text) as T;
 }
 
 function decodeBase64Url(data: string): string {
@@ -53,18 +61,26 @@ function decodeBase64UrlBuffer(data: string): Buffer {
 }
 
 type MimePart = {
-  mimeType?: string | null;
-  filename?: string | null;
-  body?: { data?: string | null; attachmentId?: string | null } | null;
-  parts?: MimePart[] | null;
+  mimeType?: string;
+  filename?: string;
+  body?: { data?: string; attachmentId?: string; size?: number };
+  parts?: MimePart[];
 };
+
+type GmailHeader = { name?: string; value?: string };
+
+type GmailMessage = {
+  id?: string;
+  payload?: MimePart & { headers?: GmailHeader[] };
+};
+
+type ListResponse = { messages?: Array<{ id?: string }> };
 
 function extractBodies(payload: MimePart): { text: string; html: string } {
   let text = "";
   let html = "";
 
   function walk(part: MimePart) {
-    if (!part) return;
     const mime = part.mimeType ?? "";
     const data = part.body?.data;
     if (data) {
@@ -72,9 +88,7 @@ function extractBodies(payload: MimePart): { text: string; html: string } {
       if (mime.includes("text/plain")) text += decoded;
       else if (mime.includes("text/html")) html += decoded;
     }
-    if (part.parts) {
-      for (const p of part.parts) walk(p);
-    }
+    part.parts?.forEach(walk);
   }
 
   walk(payload);
@@ -88,14 +102,11 @@ function findPdfParts(payload: MimePart, out: MimePart[] = []): MimePart[] {
   ) {
     out.push(payload);
   }
-  if (payload.parts) {
-    for (const p of payload.parts) findPdfParts(p, out);
-  }
+  payload.parts?.forEach((p) => findPdfParts(p, out));
   return out;
 }
 
 async function extractPdfText(
-  gmail: NonNullable<Awaited<ReturnType<typeof getGmailClient>>>,
   messageId: string,
   payload: MimePart,
 ): Promise<string> {
@@ -111,12 +122,10 @@ async function extractPdfText(
   for (const part of pdfParts) {
     const attachmentId = part.body?.attachmentId;
     if (!attachmentId) continue;
-    const att = await gmail.users.messages.attachments.get({
-      userId: "me",
-      messageId,
-      id: attachmentId,
-    });
-    const buf = decodeBase64UrlBuffer(att.data.data ?? "");
+    const att = await gmailFetch<{ data?: string }>(
+      `/users/me/messages/${messageId}/attachments/${attachmentId}`,
+    );
+    const buf = decodeBase64UrlBuffer(att.data ?? "");
     const parsed = await pdfParse(buf);
     chunks.push(parsed.text);
   }
@@ -128,8 +137,7 @@ export async function listPaymentMessages(options?: {
   newerThanDays?: number;
   maxResults?: number;
 }): Promise<GmailMessagePayload[]> {
-  const gmail = await getGmailClient();
-  if (!gmail) return [];
+  if (!isGmailConfigured()) return [];
 
   const unreadOnly = options?.unreadOnly ?? true;
   const newerThanDays = options?.newerThanDays;
@@ -137,32 +145,29 @@ export async function listPaymentMessages(options?: {
   if (unreadOnly) q += " is:unread";
   if (newerThanDays && newerThanDays > 0) q += ` newer_than:${newerThanDays}d`;
 
-  const listRes = await gmail.users.messages.list({
-    userId: "me",
+  const params = new URLSearchParams({
     q,
-    maxResults: options?.maxResults ?? 50,
+    maxResults: String(options?.maxResults ?? 50),
   });
 
-  const messages = listRes.data.messages ?? [];
+  const listRes = await gmailFetch<ListResponse>(
+    `/users/me/messages?${params.toString()}`,
+  );
+
+  const messages = listRes.messages ?? [];
   const out: GmailMessagePayload[] = [];
 
   for (const m of messages) {
     if (!m.id) continue;
-    const full = await gmail.users.messages.get({
-      userId: "me",
-      id: m.id,
-      format: "full",
-    });
+    const full = await gmailFetch<GmailMessage>(
+      `/users/me/messages/${m.id}?format=full`,
+    );
 
-    const headers = full.data.payload?.headers ?? [];
+    const headers = full.payload?.headers ?? [];
     const subject =
       headers.find((h) => h.name?.toLowerCase() === "subject")?.value ?? "";
-    const { text, html } = extractBodies(full.data.payload ?? {});
-    const pdfText = await extractPdfText(
-      gmail,
-      m.id,
-      full.data.payload ?? {},
-    );
+    const { text, html } = extractBodies(full.payload ?? {});
+    const pdfText = await extractPdfText(m.id, full.payload ?? {});
 
     if (!looksLikePaymentEmail(text, html, pdfText)) continue;
 
@@ -174,12 +179,10 @@ export async function listPaymentMessages(options?: {
 
 export async function markMessageRead(messageId: string): Promise<void> {
   if (process.env.GMAIL_MARK_READ === "false") return;
-  const gmail = await getGmailClient();
-  if (!gmail) return;
-  await gmail.users.messages.modify({
-    userId: "me",
-    id: messageId,
-    requestBody: { removeLabelIds: ["UNREAD"] },
+  if (!isGmailConfigured()) return;
+  await gmailFetch(`/users/me/messages/${messageId}/modify`, {
+    method: "POST",
+    body: JSON.stringify({ removeLabelIds: ["UNREAD"] }),
   });
 }
 
