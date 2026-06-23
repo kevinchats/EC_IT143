@@ -51,9 +51,12 @@ export const payments = sqliteTable(
       onDelete: "set null",
     }),
     payerLabel: text("payer_label").notNull().default("Unknown"),
+    businessTag: text("business_tag").notNull().default("uncategorized"),
+    direction: text("direction").notNull().default("in"),
     amountCents: integer("amount_cents").notNull(),
     paymentDate: text("payment_date").notNull(),
     gmailMessageId: text("gmail_message_id"),
+    dedupeKey: text("dedupe_key"),
     subject: text("subject"),
     rawPreview: text("raw_preview"),
     source: text("source").notNull().default("gmail"),
@@ -63,6 +66,7 @@ export const payments = sqliteTable(
   },
   (t) => [
     uniqueIndex("payments_gmail_message_id_unique").on(t.gmailMessageId),
+    uniqueIndex("payments_dedupe_key_unique").on(t.dedupeKey),
   ],
 );
 

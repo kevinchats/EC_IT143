@@ -3,8 +3,8 @@ import { Nav } from "@/components/Nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Rental Cash Flow",
-  description: "Track money in and money out for student accommodation",
+  title: "Business Expense Tracker",
+  description: "Track business cash flow from Standard Bank notifications",
 };
 
 export default function RootLayout({

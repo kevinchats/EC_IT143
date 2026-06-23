@@ -1,9 +1,10 @@
 /**
- * Standard Bank payment confirmation parser — ported from n8n workflow.
+ * Standard Bank MyUpdates + payment confirmation parser.
  */
 
 export type ParsedPayment = {
-  studentId: string;
+  counterpartyRef: string;
+  direction: "in" | "out";
   amount: number;
   amountCents: number;
   paymentDate: string;
@@ -21,28 +22,48 @@ export function looksLikePaymentEmail(text: string, html?: string, pdfText?: str
   const blob = `${text || ""} ${html || ""} ${pdfText || ""}`.toLowerCase();
   return (
     /was paid to standard bank account/.test(blob) ||
+    /was paid from standard bank account/.test(blob) ||
     /payment has been made/.test(blob) ||
-    /payment received/.test(blob) ||
-    /immediate payment confirmation/.test(blob) ||
-    /credit of r/.test(blob)
+    /immediate payment confirmation/.test(blob)
   );
 }
 
-/** Standard Bank MyUpdates incoming credit: "paid to ... from REF on DATE". */
-function parseMyUpdatesIncoming(body: string): ParsedPayment | null {
-  const m = body.match(
+function parseMyUpdates(body: string): ParsedPayment | null {
+  const incoming = body.match(
     /An amount of R([\d.]+) was paid to Standard Bank account.+ from (.+?) on (\d{4}-\d{2}-\d{2})/i,
   );
-  if (!m) return null;
-  const amount = parseFloat(m[1]);
-  if (Number.isNaN(amount) || amount <= 0) return null;
-  return {
-    studentId: m[2].trim(),
-    amount,
-    amountCents: Math.round(amount * 100),
-    paymentDate: m[3],
-    bodyPreview: body.slice(0, 800),
-  };
+  if (incoming) {
+    const amount = parseFloat(incoming[1]);
+    if (!Number.isNaN(amount) && amount > 0) {
+      return {
+        counterpartyRef: incoming[2].trim(),
+        direction: "in",
+        amount,
+        amountCents: Math.round(amount * 100),
+        paymentDate: incoming[3],
+        bodyPreview: body.slice(0, 800),
+      };
+    }
+  }
+
+  const outgoing = body.match(
+    /An amount of R([\d.]+) was paid from Standard Bank account.+ to (.+?) on (\d{4}-\d{2}-\d{2})/i,
+  );
+  if (outgoing) {
+    const amount = parseFloat(outgoing[1]);
+    if (!Number.isNaN(amount) && amount > 0) {
+      return {
+        counterpartyRef: outgoing[2].trim(),
+        direction: "out",
+        amount,
+        amountCents: Math.round(amount * 100),
+        paymentDate: outgoing[3],
+        bodyPreview: body.slice(0, 800),
+      };
+    }
+  }
+
+  return null;
 }
 
 export function parsePaymentFromBody(
@@ -54,83 +75,47 @@ export function parsePaymentFromBody(
     .filter(Boolean)
     .join(" ");
 
-  const myUpdates = parseMyUpdatesIncoming(body);
+  const myUpdates = parseMyUpdates(body);
   if (myUpdates) return myUpdates;
 
   let amount: number | null = null;
   const amountPatterns = [
     /Amount\s*R?\s*([\d\s,]+(?:\.\d{2})?)/i,
     /(?:credit|value)\s*(?:of\s*)?R\s*([\d\s,]+(?:\.\d{2})?)/i,
-    /R\s*([\d\s,]+(?:\.\d{2})?)/gi,
   ];
   for (const pattern of amountPatterns) {
-    if (pattern.global) {
-      const matches = [...body.matchAll(pattern)];
-      const last = matches.at(-1);
-      if (last?.[1]) {
-        const n = parseFloat(last[1].replace(/[\s,]/g, ""));
-        if (!Number.isNaN(n) && n > 0) {
-          amount = n;
-          break;
-        }
-      }
-    } else {
-      const m = body.match(pattern);
-      if (m?.[1]) {
-        const n = parseFloat(m[1].replace(/[\s,]/g, ""));
-        if (!Number.isNaN(n) && n > 0) {
-          amount = n;
-          break;
-        }
+    const m = body.match(pattern);
+    if (m?.[1]) {
+      const n = parseFloat(m[1].replace(/[\s,]/g, ""));
+      if (!Number.isNaN(n) && n > 0) {
+        amount = n;
+        break;
       }
     }
   }
 
-  let studentId: string | null = null;
+  let counterpartyRef: string | null = null;
   const refPatterns = [
     /Beneficiary reference\s*[:\s]*([A-Za-z0-9 \-]{3,}?)(?=\s*(?:Amount|Payment date|Bank|$))/i,
     /(?:Your reference|Customer reference|From reference)\s*[:\s]+([A-Za-z0-9 \-]{3,})/i,
-    /(?:Your reference|Customer reference|From reference)\s*[:\s]*([A-Za-z0-9 \-]{3,}?)(?=\s*(?:Bank|Amount|Payment date|$))/i,
-    /\bref\.?\s*[:\s]+([A-Za-z0-9 \-]{3,})/i,
   ];
   for (const p of refPatterns) {
     const m = body.match(p);
     if (m) {
-      studentId = m[1].trim();
+      counterpartyRef = m[1].trim();
       break;
     }
   }
 
   let paymentDate = new Date().toISOString().slice(0, 10);
   const isoDate = body.match(/(\d{4}-\d{2}-\d{2})/);
-  if (isoDate) {
-    paymentDate = isoDate[1];
-  } else {
-  const dm = body.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/);
-  if (dm) {
-    const parts = dm[1].split(/[\/\-]/);
-    if (parts.length === 3) {
-      let day = parseInt(parts[0], 10);
-      let month = parseInt(parts[1], 10);
-      let year = parseInt(parts[2], 10);
-      if (year < 100) year += 2000;
-      // Assume DD/MM/YYYY (South Africa); if first segment > 12, treat as MM/DD
-      if (day > 12 && month <= 12) {
-        // already day/month
-      } else if (month > 12 && day <= 12) {
-        [day, month] = [month, day];
-      }
-      paymentDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    }
-  }
-  }
+  if (isoDate) paymentDate = isoDate[1];
 
-  if (!studentId || amount == null || Number.isNaN(amount)) {
-    return null;
-  }
+  if (!counterpartyRef || amount == null) return null;
 
   return {
-    studentId,
+    counterpartyRef,
+    direction: "in",
     amount,
     amountCents: Math.round(amount * 100),
     paymentDate,

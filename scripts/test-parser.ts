@@ -16,7 +16,7 @@ if (!looksLikePaymentEmail(sample)) {
 }
 
 const parsed = parsePaymentFromBody(sample);
-if (!parsed || parsed.studentId !== "STUDENT-42" || parsed.amount !== 3500) {
+if (!parsed || parsed.counterpartyRef !== "STUDENT-42" || parsed.amount !== 3500) {
   console.error("FAIL: parse", parsed);
   process.exit(1);
 }

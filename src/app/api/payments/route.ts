@@ -1,19 +1,14 @@
-import { desc, eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { payments, rooms, students } from "@/db/schema";
+import { payments } from "@/db/schema";
+import { autoTag } from "@/lib/business-tags";
 
 export async function GET() {
   const db = getDb();
   const rows = await db
-    .select({
-      payment: payments,
-      student: students,
-      room: rooms,
-    })
+    .select()
     .from(payments)
-    .leftJoin(students, eq(payments.studentId, students.id))
-    .leftJoin(rooms, eq(students.roomId, rooms.id))
     .orderBy(desc(payments.paymentDate), desc(payments.id))
     .limit(500);
   return NextResponse.json(rows);
@@ -24,6 +19,7 @@ export async function POST(request: Request) {
   const payerLabel = String(body.payerLabel ?? "").trim();
   const amountCents = Number(body.amountCents);
   const paymentDate = String(body.paymentDate ?? "").trim();
+  const direction = body.direction === "out" ? "out" : "in";
 
   if (!payerLabel || !amountCents || !paymentDate) {
     return NextResponse.json(
@@ -37,11 +33,12 @@ export async function POST(request: Request) {
     .insert(payments)
     .values({
       payerLabel,
-      studentId: body.studentId ? Number(body.studentId) : null,
+      businessTag: autoTag(payerLabel),
+      direction,
       amountCents,
       paymentDate,
       source: "manual",
-      subject: body.subject ? String(body.subject) : "Manual entry",
+      subject: "Manual entry",
     })
     .returning();
 

@@ -1,16 +1,14 @@
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { getDb } from "@/db";
-import {
-  gmailSyncState,
-  payments,
-  students,
-} from "@/db/schema";
+import { gmailSyncState, payments } from "@/db/schema";
+import { autoTag, paymentDedupeKey } from "@/lib/business-tags";
 import {
   isGmailConfigured,
   listPaymentMessages,
   markMessageRead,
   parseGmailMessage,
 } from "@/lib/gmail";
+
 export type SyncResult = {
   ok: boolean;
   processed: number;
@@ -35,7 +33,7 @@ export async function syncGmailPayments(options?: {
       inserted: 0,
       skipped: 0,
       errors: [],
-      message: "Gmail not configured — set GMAIL_* in .env and run npm run gmail:auth",
+      message: "Gmail not configured — set GMAIL_* in .env",
     };
   }
 
@@ -55,12 +53,8 @@ export async function syncGmailPayments(options?: {
       maxResults: fullSync ? undefined : 500,
     });
 
-    // First sync: if date filter hid older emails, retry without date limit
     if (!hasSyncedBefore && messages.length === 0 && backfillDays > 0) {
-      messages = await listPaymentMessages({
-        unreadOnly: false,
-        fetchAll: true,
-      });
+      messages = await listPaymentMessages({ unreadOnly: false, fetchAll: true });
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -74,11 +68,6 @@ export async function syncGmailPayments(options?: {
     };
   }
 
-  const studentRows = await db.select().from(students);
-  const refMap = new Map(
-    studentRows.map((s) => [s.studentRef.toLowerCase(), s]),
-  );
-
   let inserted = 0;
   let skipped = 0;
 
@@ -86,16 +75,26 @@ export async function syncGmailPayments(options?: {
     const parsed = parseGmailMessage(msg);
     if (!parsed) {
       skipped++;
-      errors.push(`Could not parse message ${msg.id}`);
       continue;
     }
 
-    const student = refMap.get(parsed.studentId.toLowerCase());
+    const label = parsed.counterpartyRef;
+    const dedupeKey = paymentDedupeKey(
+      parsed.direction,
+      parsed.paymentDate,
+      parsed.amountCents,
+      label,
+    );
 
     const existing = await db
       .select({ id: payments.id })
       .from(payments)
-      .where(eq(payments.gmailMessageId, msg.id))
+      .where(
+        or(
+          eq(payments.gmailMessageId, msg.id),
+          eq(payments.dedupeKey, dedupeKey),
+        ),
+      )
       .limit(1);
 
     if (existing.length > 0) {
@@ -104,11 +103,13 @@ export async function syncGmailPayments(options?: {
     }
 
     await db.insert(payments).values({
-      studentId: student?.id ?? null,
-      payerLabel: student?.name ?? parsed.studentId,
+      payerLabel: label,
+      businessTag: autoTag(label),
+      direction: parsed.direction,
       amountCents: parsed.amountCents,
       paymentDate: parsed.paymentDate,
       gmailMessageId: msg.id,
+      dedupeKey,
       subject: msg.subject,
       rawPreview: parsed.bodyPreview,
       source: "gmail",
@@ -118,39 +119,29 @@ export async function syncGmailPayments(options?: {
     try {
       await markMessageRead(msg.id);
     } catch {
-      errors.push(`Payment saved but could not mark read: ${msg.id}`);
+      errors.push(`Saved but could not mark read: ${msg.id}`);
     }
   }
 
   const now = new Date().toISOString();
+  const stateUpdate = {
+    lastSyncAt: now,
+    lastError: errors.length ? errors.slice(0, 5).join("; ") : null,
+    lastProcessedCount: messages.length,
+    lastInsertedCount: inserted,
+    lastSkippedCount: skipped,
+  };
+
   if (stateRows.length === 0) {
-    await db.insert(gmailSyncState).values({
-      lastSyncAt: now,
-      lastError: errors.length ? errors.slice(0, 5).join("; ") : null,
-      lastProcessedCount: messages.length,
-      lastInsertedCount: inserted,
-      lastSkippedCount: skipped,
-    });
+    await db.insert(gmailSyncState).values(stateUpdate);
   } else {
     await db
       .update(gmailSyncState)
-      .set({
-        lastSyncAt: now,
-        lastError: errors.length ? errors.slice(0, 5).join("; ") : null,
-        lastProcessedCount: messages.length,
-        lastInsertedCount: inserted,
-        lastSkippedCount: skipped,
-      })
+      .set(stateUpdate)
       .where(eq(gmailSyncState.id, stateRows[0].id));
   }
 
-  return {
-    ok: true,
-    processed: messages.length,
-    inserted,
-    skipped,
-    errors,
-  };
+  return { ok: true, processed: messages.length, inserted, skipped, errors };
 }
 
 export function startGmailCron() {

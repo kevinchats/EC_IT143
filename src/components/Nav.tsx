@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 
 const links = [
   { href: "/", label: "Dashboard" },
-  { href: "/payments", label: "Money in" },
-  { href: "/expenses", label: "Money out" },
+  { href: "/payments", label: "Transactions" },
+  { href: "/expenses", label: "Expenses" },
   { href: "/settings", label: "Settings" },
 ];
 
@@ -16,7 +16,7 @@ export function Nav() {
   return (
     <nav className="mb-8 flex flex-wrap gap-2 border-b border-[var(--card-border)] pb-4">
       <span className="mr-4 self-center text-lg font-semibold">
-        Rental cash flow
+        Business tracker
       </span>
       {links.map((l) => {
         const active =

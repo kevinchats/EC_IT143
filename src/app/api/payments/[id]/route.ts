@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { payments } from "@/db/schema";
+import { isBusinessTag } from "@/lib/business-tags";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -19,8 +20,12 @@ export async function PATCH(request: Request, { params }: Params) {
     }
     updates.payerLabel = label;
   }
-  if (body.studentId !== undefined) {
-    updates.studentId = body.studentId ? Number(body.studentId) : null;
+  if (body.businessTag !== undefined) {
+    const tag = String(body.businessTag);
+    if (!isBusinessTag(tag)) {
+      return NextResponse.json({ error: "Invalid business tag" }, { status: 400 });
+    }
+    updates.businessTag = tag;
   }
 
   const [row] = await db

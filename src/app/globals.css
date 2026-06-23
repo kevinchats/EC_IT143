@@ -119,3 +119,31 @@ table.data th {
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+.tag-column {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-top: 3px solid;
+  border-radius: 12px;
+  padding: 1rem;
+  min-height: 200px;
+}
+
+.tag-column-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.payment-card {
+  background: #15202b;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  cursor: grab;
+}
+
+.payment-card:active {
+  cursor: grabbing;
+}

@@ -1,18 +1,15 @@
 import Link from "next/link";
 import { IncomeExpenseChart } from "@/components/IncomeExpenseChart";
 import { NetTrendChart } from "@/components/NetTrendChart";
-import { PayerTotalsChart } from "@/components/PayerTotalsChart";
-import { PaymentCountChart } from "@/components/PaymentCountChart";
 import { SyncButton } from "@/components/SyncButton";
 import { EXPENSE_CATEGORY_LABELS } from "@/lib/constants";
 import {
   getAllTimeTotals,
+  getBusinessTagSummaries,
   getChartData,
   getExpenseTotalsByCategory,
-  getMonthlyPaymentCount,
   getMonthlyTotals,
   getNetTrend,
-  getPaymentsByPayer,
   getRecentExpenses,
   getRecentPayments,
 } from "@/lib/dashboard-data";
@@ -28,18 +25,16 @@ export default async function DashboardPage() {
     recentExpenses,
     chartData,
     netTrend,
-    paymentCounts,
-    byPayer,
+    tagSummaries,
     byCategory,
   ] = await Promise.all([
     getMonthlyTotals(),
     getAllTimeTotals(),
-    getRecentPayments(10),
-    getRecentExpenses(10),
+    getRecentPayments(8),
+    getRecentExpenses(8),
     getChartData(12),
     getNetTrend(12),
-    getMonthlyPaymentCount(12),
-    getPaymentsByPayer(8),
+    getBusinessTagSummaries(),
     getExpenseTotalsByCategory(),
   ]);
 
@@ -47,22 +42,17 @@ export default async function DashboardPage() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
-  const payerChartData = byPayer.map((p) => ({
-    payer: p.payer,
-    total: p.totalCents / 100,
-  }));
-
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-[var(--muted)]">
-            Cash flow trends and payments by bank reference — {totals.month}
+            Business cash flow by category — {totals.month}
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <SyncButton label="Sync new payments" />
+          <SyncButton label="Sync new" />
           <SyncButton label="Sync all from Gmail" backfill />
         </div>
       </div>
@@ -90,72 +80,63 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      <div>
+        <h2 className="mb-3 text-lg font-semibold">By business</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          {tagSummaries.map((t) => (
+            <div
+              key={t.tag}
+              className="card border-l-4"
+              style={{ borderLeftColor: t.color }}
+            >
+              <p className="font-medium" style={{ color: t.color }}>
+                {t.label}
+              </p>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                {t.count} transaction{t.count === 1 ? "" : "s"} this month
+              </p>
+              <p className="mt-2 text-lg font-semibold">
+                <span className="text-[var(--positive)]">
+                  {centsToRand(t.inCents)}
+                </span>
+                {" · "}
+                <span className="text-[var(--negative)]">
+                  {centsToRand(t.outCents)}
+                </span>
+              </p>
+              <p
+                className={`text-sm ${t.netCents >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}
+              >
+                Net {centsToRand(t.netCents)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="card">
-        <p className="stat-label">All-time net position</p>
+        <p className="stat-label">All-time net</p>
         <p
           className={`text-xl font-semibold ${allTime.netCents >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}
         >
-          {centsToRand(allTime.netCents)}{" "}
-          <span className="text-base font-normal text-[var(--muted)]">
-            ({centsToRand(allTime.incomeCents)} in · {centsToRand(allTime.expenseCents)} out)
-          </span>
+          {centsToRand(allTime.netCents)}
         </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="card">
-          <h2 className="mb-4 text-lg font-semibold">Money in vs money out</h2>
+          <h2 className="mb-4 text-lg font-semibold">Money in vs out</h2>
           <IncomeExpenseChart data={chartData} />
         </div>
         <div className="card">
-          <h2 className="mb-4 text-lg font-semibold">Net cash flow trend</h2>
+          <h2 className="mb-4 text-lg font-semibold">Net trend</h2>
           <NetTrendChart data={netTrend} />
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="card">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Payments by reference</h2>
-            <Link href="/payments" className="text-sm">
-              View all
-            </Link>
-          </div>
-          <PayerTotalsChart data={payerChartData} />
-          {byPayer.length > 0 && (
-            <table className="data mt-4">
-              <thead>
-                <tr>
-                  <th>Reference / payer</th>
-                  <th>Payments</th>
-                  <th>Total</th>
-                  <th>Last</th>
-                </tr>
-              </thead>
-              <tbody>
-                {byPayer.map((p) => (
-                  <tr key={p.payer}>
-                    <td>{p.payer}</td>
-                    <td>{p.count}</td>
-                    <td className="text-[var(--positive)]">
-                      {centsToRand(p.totalCents)}
-                    </td>
-                    <td>{p.lastDate ? formatDate(p.lastDate) : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-        <div className="card">
-          <h2 className="mb-4 text-lg font-semibold">Payment volume trend</h2>
-          <PaymentCountChart data={paymentCounts} />
         </div>
       </div>
 
       {topCategories.length > 0 && (
         <div className="card">
-          <h2 className="mb-4 text-lg font-semibold">Spending this month by category</h2>
+          <h2 className="mb-4 text-lg font-semibold">Manual expenses this month</h2>
           <ul className="space-y-2">
             {topCategories.map(([cat, cents]) => (
               <li key={cat} className="flex justify-between text-sm">
@@ -169,11 +150,9 @@ export default async function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="card">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Recent money in</h2>
-            <Link href="/payments" className="text-sm">
-              View all
-            </Link>
+          <div className="mb-3 flex justify-between">
+            <h2 className="text-lg font-semibold">Recent transactions</h2>
+            <Link href="/payments">Categorise</Link>
           </div>
           <table className="data">
             <thead>
@@ -187,16 +166,23 @@ export default async function DashboardPage() {
               {recentPayments.length === 0 ? (
                 <tr>
                   <td colSpan={3} className="text-[var(--muted)]">
-                    No payments yet — use Sync all from Gmail above
+                    Sync Gmail to import bank transactions
                   </td>
                 </tr>
               ) : (
-                recentPayments.map(({ payment }) => (
-                  <tr key={payment.id}>
-                    <td>{formatDate(payment.paymentDate)}</td>
-                    <td>{payment.payerLabel}</td>
-                    <td className="text-[var(--positive)]">
-                      {centsToRand(payment.amountCents)}
+                recentPayments.map((p) => (
+                  <tr key={p.id}>
+                    <td>{formatDate(p.paymentDate)}</td>
+                    <td>{p.payerLabel}</td>
+                    <td
+                      className={
+                        p.direction === "in"
+                          ? "text-[var(--positive)]"
+                          : "text-[var(--negative)]"
+                      }
+                    >
+                      {p.direction === "in" ? "+" : "−"}
+                      {centsToRand(p.amountCents)}
                     </td>
                   </tr>
                 ))
@@ -206,11 +192,9 @@ export default async function DashboardPage() {
         </div>
 
         <div className="card">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Recent money out</h2>
-            <Link href="/expenses" className="text-sm">
-              View all
-            </Link>
+          <div className="mb-3 flex justify-between">
+            <h2 className="text-lg font-semibold">Recent manual expenses</h2>
+            <Link href="/expenses">View all</Link>
           </div>
           <table className="data">
             <thead>
@@ -224,19 +208,16 @@ export default async function DashboardPage() {
               {recentExpenses.length === 0 ? (
                 <tr>
                   <td colSpan={3} className="text-[var(--muted)]">
-                    No expenses yet
+                    No manual expenses
                   </td>
                 </tr>
               ) : (
-                recentExpenses.map(({ expense, room }) => (
-                  <tr key={expense.id}>
-                    <td>{formatDate(expense.expenseDate)}</td>
-                    <td>
-                      {expense.description}
-                      {room ? ` · ${room.label}` : ""}
-                    </td>
+                recentExpenses.map((e) => (
+                  <tr key={e.id}>
+                    <td>{formatDate(e.expenseDate)}</td>
+                    <td>{e.description}</td>
                     <td className="text-[var(--negative)]">
-                      {centsToRand(expense.amountCents)}
+                      {centsToRand(e.amountCents)}
                     </td>
                   </tr>
                 ))
