@@ -7,12 +7,11 @@ import { randToCents, todayIso } from "@/lib/money";
 
 const TAG_OPTIONS = Object.keys(BUSINESS_TAGS) as BusinessTag[];
 
-export function ManualPaymentForm() {
+export function ManualExpenseForm() {
   const router = useRouter();
-  const [payerLabel, setPayerLabel] = useState("");
+  const [expenseDate, setExpenseDate] = useState(todayIso());
   const [amount, setAmount] = useState("");
-  const [paymentDate, setPaymentDate] = useState(todayIso());
-  const [direction, setDirection] = useState<"in" | "out">("in");
+  const [description, setDescription] = useState("");
   const [businessTag, setBusinessTag] = useState<BusinessTag>("uncategorized");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -21,14 +20,14 @@ export function ManualPaymentForm() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const res = await fetch("/api/payments", {
+    const res = await fetch("/api/expenses", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        payerLabel,
+        expenseDate,
         amountCents: randToCents(amount),
-        paymentDate,
-        direction,
+        description,
+        category: "other",
         businessTag,
       }),
     });
@@ -38,8 +37,8 @@ export function ManualPaymentForm() {
       setLoading(false);
       return;
     }
-    setPayerLabel("");
     setAmount("");
+    setDescription("");
     router.refresh();
     setLoading(false);
   }
@@ -47,11 +46,11 @@ export function ManualPaymentForm() {
   return (
     <form onSubmit={submit} className="space-y-4">
       <label className="block text-sm">
-        Reference / description
+        Description
         <input
           className="mt-1"
-          value={payerLabel}
-          onChange={(e) => setPayerLabel(e.target.value)}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
           required
         />
       </label>
@@ -71,21 +70,10 @@ export function ManualPaymentForm() {
         <input
           className="mt-1"
           type="date"
-          value={paymentDate}
-          onChange={(e) => setPaymentDate(e.target.value)}
+          value={expenseDate}
+          onChange={(e) => setExpenseDate(e.target.value)}
           required
         />
-      </label>
-      <label className="block text-sm">
-        Type
-        <select
-          className="mt-1"
-          value={direction}
-          onChange={(e) => setDirection(e.target.value as "in" | "out")}
-        >
-          <option value="in">Money in</option>
-          <option value="out">Money out</option>
-        </select>
       </label>
       <label className="block text-sm">
         Business
@@ -103,7 +91,7 @@ export function ManualPaymentForm() {
       </label>
       {error && <p className="text-sm text-[var(--negative)]">{error}</p>}
       <button type="submit" className="btn btn-primary" disabled={loading}>
-        {loading ? "Saving…" : "Add transaction"}
+        {loading ? "Saving…" : "Add expense"}
       </button>
     </form>
   );

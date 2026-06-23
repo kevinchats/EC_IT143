@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { expenseCategories, expenses } from "@/db/schema";
+import { isBusinessTag } from "@/lib/business-tags";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -26,6 +27,13 @@ export async function PATCH(request: Request, { params }: Params) {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 });
     }
     updates.category = body.category;
+  }
+  if (body.businessTag !== undefined) {
+    const tag = String(body.businessTag);
+    if (!isBusinessTag(tag)) {
+      return NextResponse.json({ error: "Invalid business tag" }, { status: 400 });
+    }
+    updates.businessTag = tag;
   }
 
   const [row] = await db

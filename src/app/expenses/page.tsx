@@ -1,49 +1,59 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { getDb } from "@/db";
-import { expenses, rooms } from "@/db/schema";
-import { EXPENSE_CATEGORY_LABELS } from "@/lib/constants";
-import { ExpenseManager } from "./ExpenseManager";
+import { expenses } from "@/db/schema";
+import {
+  BusinessTagBoard,
+  type BoardItem,
+} from "@/components/BusinessTagBoard";
+import { centsToRand } from "@/lib/money";
+import { ManualExpenseForm } from "./ManualExpenseForm";
 
 export const dynamic = "force-dynamic";
 
 export default async function ExpensesPage() {
   const db = getDb();
   const expenseRows = await db
-    .select({
-      expense: expenses,
-      room: rooms,
-    })
+    .select()
     .from(expenses)
-    .leftJoin(rooms, eq(expenses.roomId, rooms.id))
     .orderBy(desc(expenses.expenseDate), desc(expenses.id));
 
-  const roomRows = await db
-    .select()
-    .from(rooms)
-    .orderBy(asc(rooms.sortOrder), asc(rooms.label));
+  const boardItems: BoardItem[] = expenseRows.map((e) => ({
+    id: e.id,
+    kind: "expense" as const,
+    title: e.description,
+    businessTag: e.businessTag,
+    amountCents: e.amountCents,
+    date: e.expenseDate,
+    manual: true,
+  }));
+
+  const totalCents = expenseRows.reduce((s, e) => s + e.amountCents, 0);
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold">Money out</h1>
+        <h1 className="text-2xl font-bold">Manual expenses</h1>
         <p className="text-[var(--muted)]">
-          Record what you paid — utilities, maintenance, and other property costs.
+          Drag expenses into a business category, or remove them entirely.
         </p>
       </div>
 
-      <ExpenseManager
-        initialExpenses={expenseRows.map((r) => ({
-          id: r.expense.id,
-          expenseDate: r.expense.expenseDate,
-          amountCents: r.expense.amountCents,
-          category: r.expense.category,
-          description: r.expense.description,
-          roomId: r.expense.roomId,
-          roomLabel: r.room?.label ?? null,
-        }))}
-        rooms={roomRows.map((r) => ({ id: r.id, label: r.label }))}
-        categoryLabels={EXPENSE_CATEGORY_LABELS}
-      />
+      <div className="card">
+        <p className="stat-label">Total manual expenses</p>
+        <p className="stat-value text-[var(--negative)]">{centsToRand(totalCents)}</p>
+      </div>
+
+      <div className="card">
+        <h2 className="mb-4 text-lg font-semibold">Categorise expenses</h2>
+        <BusinessTagBoard items={boardItems} emptyHint="Drop expenses here" />
+      </div>
+
+      <details className="card" open>
+        <summary className="cursor-pointer text-lg font-semibold">Add manual expense</summary>
+        <div className="mt-4 max-w-lg">
+          <ManualExpenseForm />
+        </div>
+      </details>
     </div>
   );
 }

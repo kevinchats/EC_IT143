@@ -1,7 +1,10 @@
 import { desc } from "drizzle-orm";
 import { getDb } from "@/db";
 import { payments } from "@/db/schema";
-import { PaymentBoard } from "@/components/PaymentBoard";
+import {
+  BusinessTagBoard,
+  type BoardItem,
+} from "@/components/BusinessTagBoard";
 import { centsToRand } from "@/lib/money";
 import { ManualPaymentForm } from "./ManualPaymentForm";
 
@@ -9,15 +12,26 @@ export const dynamic = "force-dynamic";
 
 export default async function PaymentsPage() {
   const db = getDb();
-  const rows = await db
+  const paymentRows = await db
     .select()
     .from(payments)
     .orderBy(desc(payments.paymentDate), desc(payments.id));
 
-  const inTotal = rows
+  const boardItems: BoardItem[] = paymentRows.map((p) => ({
+    id: p.id,
+    kind: "payment",
+    title: p.payerLabel,
+    businessTag: p.businessTag,
+    amountCents: p.amountCents,
+    date: p.paymentDate,
+    direction: p.direction,
+    manual: p.source === "manual",
+  }));
+
+  const inTotal = paymentRows
     .filter((p) => p.direction === "in")
     .reduce((s, p) => s + p.amountCents, 0);
-  const outTotal = rows
+  const outTotal = paymentRows
     .filter((p) => p.direction === "out")
     .reduce((s, p) => s + p.amountCents, 0);
 
@@ -26,7 +40,7 @@ export default async function PaymentsPage() {
       <div>
         <h1 className="text-2xl font-bold">Transactions</h1>
         <p className="text-[var(--muted)]">
-          Drag payments into a business category. Chatcom-related refs auto-tag on sync.
+          Drag bank and manual transactions into a business. Manual items can be removed.
         </p>
       </div>
 
@@ -42,12 +56,14 @@ export default async function PaymentsPage() {
       </div>
 
       <div className="card">
-        <h2 className="mb-4 text-lg font-semibold">Categorise payments</h2>
-        <PaymentBoard payments={rows} />
+        <h2 className="mb-4 text-lg font-semibold">Bank & manual transactions</h2>
+        <BusinessTagBoard items={boardItems} emptyHint="Drop transactions here" />
       </div>
 
       <details className="card">
-        <summary className="cursor-pointer text-lg font-semibold">Add manual transaction</summary>
+        <summary className="cursor-pointer text-lg font-semibold">
+          Add manual transaction
+        </summary>
         <div className="mt-4 max-w-lg">
           <ManualPaymentForm />
         </div>

@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { expenseCategories, expenses, rooms } from "@/db/schema";
+import { autoTag, isBusinessTag } from "@/lib/business-tags";
 
 export async function GET() {
   const db = getDb();
@@ -23,6 +24,10 @@ export async function POST(request: Request) {
   const category = String(body.category ?? "other");
   const description = String(body.description ?? "").trim();
   const roomId = body.roomId ? Number(body.roomId) : null;
+  const businessTag =
+    body.businessTag && isBusinessTag(String(body.businessTag))
+      ? String(body.businessTag)
+      : autoTag(description);
 
   if (!expenseDate || !amountCents || !description) {
     return NextResponse.json(
@@ -42,6 +47,7 @@ export async function POST(request: Request) {
       expenseDate,
       amountCents,
       category: category as (typeof expenseCategories)[number],
+      businessTag,
       description,
       roomId,
     })

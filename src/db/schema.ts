@@ -75,6 +75,7 @@ export const expenses = sqliteTable("expenses", {
   expenseDate: text("expense_date").notNull(),
   amountCents: integer("amount_cents").notNull(),
   category: text("category").notNull().$type<ExpenseCategory>(),
+  businessTag: text("business_tag").notNull().default("uncategorized"),
   description: text("description").notNull(),
   roomId: integer("room_id").references(() => rooms.id, {
     onDelete: "set null",

@@ -2,7 +2,7 @@ import { desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { payments } from "@/db/schema";
-import { autoTag } from "@/lib/business-tags";
+import { autoTag, isBusinessTag } from "@/lib/business-tags";
 
 export async function GET() {
   const db = getDb();
@@ -28,12 +28,17 @@ export async function POST(request: Request) {
     );
   }
 
+  const businessTag =
+    body.businessTag && isBusinessTag(String(body.businessTag))
+      ? String(body.businessTag)
+      : autoTag(payerLabel);
+
   const db = getDb();
   const [row] = await db
     .insert(payments)
     .values({
       payerLabel,
-      businessTag: autoTag(payerLabel),
+      businessTag,
       direction,
       amountCents,
       paymentDate,

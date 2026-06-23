@@ -37,3 +37,25 @@ export async function PATCH(request: Request, { params }: Params) {
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(row);
 }
+
+export async function DELETE(_request: Request, { params }: Params) {
+  const { id } = await params;
+  const paymentId = Number(id);
+  const db = getDb();
+  const [row] = await db
+    .select({ source: payments.source })
+    .from(payments)
+    .where(eq(payments.id, paymentId))
+    .limit(1);
+
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (row.source !== "manual") {
+    return NextResponse.json(
+      { error: "Only manual transactions can be deleted" },
+      { status: 400 },
+    );
+  }
+
+  await db.delete(payments).where(eq(payments.id, paymentId));
+  return NextResponse.json({ ok: true });
+}

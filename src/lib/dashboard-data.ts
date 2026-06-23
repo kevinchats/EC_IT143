@@ -140,17 +140,22 @@ export async function getBusinessTagSummaries(
   month = monthKey(todayIso()),
 ): Promise<BusinessTagSummary[]> {
   const db = getDb();
-  const rows = await db.select().from(payments);
-  const monthRows = rows.filter((p) => monthKey(p.paymentDate) === month);
+  const paymentRows = await db.select().from(payments);
+  const expenseRows = await db.select().from(expenses);
+  const monthPayments = paymentRows.filter((p) => monthKey(p.paymentDate) === month);
+  const monthExpenses = expenseRows.filter((e) => monthKey(e.expenseDate) === month);
 
   return (Object.keys(BUSINESS_TAGS) as BusinessTag[]).map((tag) => {
-    const tagged = monthRows.filter((p) => p.businessTag === tag);
-    const inCents = tagged
+    const taggedPayments = monthPayments.filter((p) => p.businessTag === tag);
+    const taggedExpenses = monthExpenses.filter((e) => e.businessTag === tag);
+    const inCents = taggedPayments
       .filter((p) => p.direction === "in")
       .reduce((s, p) => s + p.amountCents, 0);
-    const outCents = tagged
-      .filter((p) => p.direction === "out")
-      .reduce((s, p) => s + p.amountCents, 0);
+    const outCents =
+      taggedPayments
+        .filter((p) => p.direction === "out")
+        .reduce((s, p) => s + p.amountCents, 0) +
+      taggedExpenses.reduce((s, e) => s + e.amountCents, 0);
     return {
       tag,
       label: BUSINESS_TAGS[tag].label,
@@ -158,7 +163,7 @@ export async function getBusinessTagSummaries(
       inCents,
       outCents,
       netCents: inCents - outCents,
-      count: tagged.length,
+      count: taggedPayments.length + taggedExpenses.length,
     };
   });
 }
@@ -166,6 +171,7 @@ export async function getBusinessTagSummaries(
 export async function getBusinessChartData(monthsBack = 6) {
   const db = getDb();
   const paymentRows = await db.select().from(payments);
+  const expenseRows = await db.select().from(expenses);
 
   const now = new Date();
   const keys: string[] = [];
@@ -184,22 +190,27 @@ export async function getBusinessChartData(monthsBack = 6) {
 
   for (const tag of tags) {
     result[tag] = keys.map((month) => {
-      const tagged = paymentRows.filter(
+      const taggedPayments = paymentRows.filter(
         (p) => p.businessTag === tag && monthKey(p.paymentDate) === month,
       );
-      const income = tagged
+      const taggedExpenses = expenseRows.filter(
+        (e) => e.businessTag === tag && monthKey(e.expenseDate) === month,
+      );
+      const income = taggedPayments
         .filter((p) => p.direction === "in")
         .reduce((s, p) => s + p.amountCents, 0);
-      const expenses = tagged
-        .filter((p) => p.direction === "out")
-        .reduce((s, p) => s + p.amountCents, 0);
+      const expensesTotal =
+        taggedPayments
+          .filter((p) => p.direction === "out")
+          .reduce((s, p) => s + p.amountCents, 0) +
+        taggedExpenses.reduce((s, e) => s + e.amountCents, 0);
       return {
         label: new Date(month + "-01T12:00:00").toLocaleDateString("en-ZA", {
           month: "short",
           year: "2-digit",
         }),
         income: income / 100,
-        expenses: expenses / 100,
+        expenses: expensesTotal / 100,
       };
     });
   }
