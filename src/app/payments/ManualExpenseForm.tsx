@@ -91,7 +91,7 @@ export function ManualExpenseForm() {
       </label>
       {error && <p className="text-sm text-[var(--negative)]">{error}</p>}
       <button type="submit" className="btn btn-primary" disabled={loading}>
-        {loading ? "Saving…" : "Add expense"}
+        {loading ? "Saving…" : "Add manual expense"}
       </button>
     </form>
   );

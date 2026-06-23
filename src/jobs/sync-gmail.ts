@@ -169,7 +169,7 @@ export async function syncGmailPayments(options?: {
 }
 
 export function startGmailCron() {
-  const cronExpr = process.env.GMAIL_SYNC_CRON ?? "*/5 * * * *";
+  const cronExpr = process.env.GMAIL_SYNC_CRON ?? "0 9 * * 1";
   if (process.env.DISABLE_GMAIL_CRON === "true") return;
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -180,10 +180,10 @@ export function startGmailCron() {
   }
 
   cron.schedule(cronExpr, () => {
-    syncGmailPayments().catch((err) => {
+    syncGmailPayments({ fullSync: true, unreadOnly: false }).catch((err) => {
       console.error("Gmail sync failed:", err);
     });
   });
 
-  console.log(`Gmail sync scheduled: ${cronExpr}`);
+  console.log(`Gmail sync scheduled (weekly full sync): ${cronExpr}`);
 }

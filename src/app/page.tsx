@@ -180,7 +180,7 @@ export default async function DashboardPage() {
         <div className="card">
           <div className="mb-3 flex justify-between">
             <h2 className="text-lg font-semibold">Recent transactions</h2>
-            <Link href="/payments">Categorise</Link>
+            <Link href="/payments">View all</Link>
           </div>
           <table className="data">
             <thead>
@@ -222,7 +222,7 @@ export default async function DashboardPage() {
         <div className="card">
           <div className="mb-3 flex justify-between">
             <h2 className="text-lg font-semibold">Recent manual expenses</h2>
-            <Link href="/expenses">View all</Link>
+            <Link href="/payments">Transactions</Link>
           </div>
           <table className="data">
             <thead>

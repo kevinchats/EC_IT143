@@ -115,6 +115,12 @@ export default async function SettingsPage() {
             <SyncButton label="Sync all from Gmail" backfill />
           </div>
         )}
+        {configured && (
+          <p className="text-sm text-[var(--muted)]">
+            Background sync runs weekly (Mondays 09:00 by default). Override with{" "}
+            <code>GMAIL_SYNC_CRON</code> in <code>.env</code>.
+          </p>
+        )}
       </div>
 
       <div className="card space-y-3">
