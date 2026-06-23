@@ -6,6 +6,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const backfill = Boolean(body.backfill);
     const result = await syncGmailPayments({
+      fullSync: backfill,
       backfillDays: backfill
         ? Number(process.env.GMAIL_BACKFILL_DAYS ?? 365)
         : undefined,

@@ -23,6 +23,7 @@ export type SyncResult = {
 export async function syncGmailPayments(options?: {
   backfillDays?: number;
   unreadOnly?: boolean;
+  fullSync?: boolean;
 }): Promise<SyncResult> {
   const db = getDb();
   const errors: string[] = [];
@@ -42,21 +43,23 @@ export async function syncGmailPayments(options?: {
   const hasSyncedBefore = Boolean(stateRows[0]?.lastSyncAt);
   const backfillDays =
     options?.backfillDays ?? Number(process.env.GMAIL_BACKFILL_DAYS ?? 365);
-  const unreadOnly = options?.unreadOnly ?? hasSyncedBefore;
+  const fullSync = options?.fullSync ?? false;
+  const unreadOnly = options?.unreadOnly ?? (hasSyncedBefore && !fullSync);
 
   let messages: Awaited<ReturnType<typeof listPaymentMessages>> = [];
   try {
     messages = await listPaymentMessages({
       unreadOnly,
-      newerThanDays: hasSyncedBefore ? undefined : backfillDays,
-      maxResults: 100,
+      newerThanDays: fullSync ? undefined : hasSyncedBefore ? undefined : backfillDays,
+      fetchAll: fullSync || !hasSyncedBefore,
+      maxResults: fullSync ? undefined : 500,
     });
 
     // First sync: if date filter hid older emails, retry without date limit
     if (!hasSyncedBefore && messages.length === 0 && backfillDays > 0) {
       messages = await listPaymentMessages({
         unreadOnly: false,
-        maxResults: 100,
+        fetchAll: true,
       });
     }
   } catch (err) {

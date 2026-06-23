@@ -1,4 +1,4 @@
-import { GMAIL_SEARCH_QUERY } from "./constants";
+import { GMAIL_SEARCH_QUERIES } from "./constants";
 import { refreshGoogleAccessToken } from "./gmail-setup";
 import { looksLikePaymentEmail, parsePaymentFromBody } from "./parse-payment";
 
@@ -74,7 +74,10 @@ type GmailMessage = {
   payload?: MimePart & { headers?: GmailHeader[] };
 };
 
-type ListResponse = { messages?: Array<{ id?: string }> };
+type ListResponse = {
+  messages?: Array<{ id?: string }>;
+  nextPageToken?: string;
+};
 
 function extractBodies(payload: MimePart): { text: string; html: string } {
   let text = "";
@@ -132,46 +135,80 @@ async function extractPdfText(
   return chunks.join("\n");
 }
 
+async function listMessageIdsForQuery(
+  q: string,
+  options?: { unreadOnly?: boolean; newerThanDays?: number; fetchAll?: boolean },
+): Promise<string[]> {
+  let query = q;
+  if (options?.unreadOnly) query += " is:unread";
+  if (options?.newerThanDays && options.newerThanDays > 0) {
+    query += ` newer_than:${options.newerThanDays}d`;
+  }
+
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({
+      q: query,
+      maxResults: "500",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const listRes = await gmailFetch<ListResponse>(
+      `/users/me/messages?${params.toString()}`,
+    );
+
+    for (const m of listRes.messages ?? []) {
+      if (m.id) ids.push(m.id);
+    }
+
+    pageToken = listRes.nextPageToken;
+  } while (pageToken && options?.fetchAll);
+
+  return ids;
+}
+
+async function fetchMessagePayload(id: string): Promise<GmailMessagePayload | null> {
+  const full = await gmailFetch<GmailMessage>(
+    `/users/me/messages/${id}?format=full`,
+  );
+
+  const headers = full.payload?.headers ?? [];
+  const subject =
+    headers.find((h) => h.name?.toLowerCase() === "subject")?.value ?? "";
+  const { text, html } = extractBodies(full.payload ?? {});
+  const pdfText = await extractPdfText(id, full.payload ?? {});
+
+  if (!looksLikePaymentEmail(text, html, pdfText)) return null;
+  if (!parsePaymentFromBody(text, html, pdfText)) return null;
+
+  return { id, subject, text, html, pdfText };
+}
+
 export async function listPaymentMessages(options?: {
   unreadOnly?: boolean;
   newerThanDays?: number;
   maxResults?: number;
+  fetchAll?: boolean;
 }): Promise<GmailMessagePayload[]> {
   if (!isGmailConfigured()) return [];
 
-  const unreadOnly = options?.unreadOnly ?? true;
-  const newerThanDays = options?.newerThanDays;
-  let q = GMAIL_SEARCH_QUERY;
-  if (unreadOnly) q += " is:unread";
-  if (newerThanDays && newerThanDays > 0) q += ` newer_than:${newerThanDays}d`;
+  const idSet = new Set<string>();
+  for (const q of GMAIL_SEARCH_QUERIES) {
+    const ids = await listMessageIdsForQuery(q, options);
+    for (const id of ids) idSet.add(id);
+  }
 
-  const params = new URLSearchParams({
-    q,
-    maxResults: String(options?.maxResults ?? 50),
-  });
+  let ids = [...idSet];
+  if (options?.maxResults && !options.fetchAll) {
+    ids = ids.slice(0, options.maxResults);
+  }
 
-  const listRes = await gmailFetch<ListResponse>(
-    `/users/me/messages?${params.toString()}`,
-  );
-
-  const messages = listRes.messages ?? [];
   const out: GmailMessagePayload[] = [];
-
-  for (const m of messages) {
-    if (!m.id) continue;
-    const full = await gmailFetch<GmailMessage>(
-      `/users/me/messages/${m.id}?format=full`,
-    );
-
-    const headers = full.payload?.headers ?? [];
-    const subject =
-      headers.find((h) => h.name?.toLowerCase() === "subject")?.value ?? "";
-    const { text, html } = extractBodies(full.payload ?? {});
-    const pdfText = await extractPdfText(m.id, full.payload ?? {});
-
-    if (!looksLikePaymentEmail(text, html, pdfText)) continue;
-
-    out.push({ id: m.id, subject, text, html, pdfText });
+  for (const id of ids) {
+    const msg = await fetchMessagePayload(id);
+    if (msg) out.push(msg);
   }
 
   return out;

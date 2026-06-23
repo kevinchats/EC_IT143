@@ -126,3 +126,60 @@ export async function getExpenseTotalsByCategory(month = monthKey(todayIso())) {
   }
   return map;
 }
+
+export async function getPaymentsByPayer(limit = 10) {
+  const db = getDb();
+  const rows = await db
+    .select({
+      payerLabel: payments.payerLabel,
+      totalCents: sql<number>`sum(${payments.amountCents})`,
+      count: sql<number>`count(*)`,
+      lastDate: sql<string | null>`max(${payments.paymentDate})`,
+    })
+    .from(payments)
+    .groupBy(payments.payerLabel)
+    .orderBy(desc(sql`sum(${payments.amountCents})`))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    payer: r.payerLabel,
+    totalCents: Number(r.totalCents ?? 0),
+    count: Number(r.count ?? 0),
+    lastDate: r.lastDate,
+  }));
+}
+
+export async function getNetTrend(monthsBack = 12) {
+  const chart = await getChartData(monthsBack);
+  let cumulative = 0;
+  return chart.map((m) => {
+    cumulative += m.income - m.expenses;
+    return {
+      label: m.label,
+      month: m.month,
+      net: (m.income - m.expenses),
+      cumulative,
+    };
+  });
+}
+
+export async function getMonthlyPaymentCount(monthsBack = 12) {
+  const db = getDb();
+  const paymentRows = await db.select().from(payments);
+  const now = new Date();
+  const keys: string[] = [];
+  for (let i = monthsBack - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    keys.push(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+    );
+  }
+  return keys.map((month) => ({
+    month,
+    label: new Date(month + "-01T12:00:00").toLocaleDateString("en-ZA", {
+      month: "short",
+      year: "2-digit",
+    }),
+    count: paymentRows.filter((p) => monthKey(p.paymentDate) === month).length,
+  }));
+}

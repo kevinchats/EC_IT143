@@ -20,11 +20,29 @@ export function stripHtml(s: string): string {
 export function looksLikePaymentEmail(text: string, html?: string, pdfText?: string): boolean {
   const blob = `${text || ""} ${html || ""} ${pdfText || ""}`.toLowerCase();
   return (
+    /was paid to standard bank account/.test(blob) ||
     /payment has been made/.test(blob) ||
     /payment received/.test(blob) ||
     /immediate payment confirmation/.test(blob) ||
     /credit of r/.test(blob)
   );
+}
+
+/** Standard Bank MyUpdates incoming credit: "paid to ... from REF on DATE". */
+function parseMyUpdatesIncoming(body: string): ParsedPayment | null {
+  const m = body.match(
+    /An amount of R([\d.]+) was paid to Standard Bank account.+ from (.+?) on (\d{4}-\d{2}-\d{2})/i,
+  );
+  if (!m) return null;
+  const amount = parseFloat(m[1]);
+  if (Number.isNaN(amount) || amount <= 0) return null;
+  return {
+    studentId: m[2].trim(),
+    amount,
+    amountCents: Math.round(amount * 100),
+    paymentDate: m[3],
+    bodyPreview: body.slice(0, 800),
+  };
 }
 
 export function parsePaymentFromBody(
@@ -35,6 +53,9 @@ export function parsePaymentFromBody(
   const body = [stripHtml(text || html || ""), pdfText || ""]
     .filter(Boolean)
     .join(" ");
+
+  const myUpdates = parseMyUpdatesIncoming(body);
+  if (myUpdates) return myUpdates;
 
   let amount: number | null = null;
   const amountPatterns = [

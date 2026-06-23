@@ -27,7 +27,7 @@ export default async function PaymentsPage() {
       <div>
         <h1 className="text-2xl font-bold">Money in</h1>
         <p className="text-[var(--muted)]">
-          Rent and other payments — from Gmail sync or manual entry. Click a name to edit it.
+          Rent and other payments from Standard Bank notifications. The bank reference becomes the payer name — click to edit.
         </p>
       </div>
 
@@ -46,7 +46,7 @@ export default async function PaymentsPage() {
           <thead>
             <tr>
               <th>Date</th>
-              <th>From</th>
+              <th>Reference</th>
               <th>Amount</th>
               <th>Source</th>
             </tr>

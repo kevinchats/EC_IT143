@@ -112,7 +112,7 @@ export default async function SettingsPage() {
         {configured && (
           <div className="flex flex-wrap gap-4">
             <SyncButton />
-            <SyncButton label="Backfill (90 days)" backfill />
+            <SyncButton label="Sync all from Gmail" backfill />
           </div>
         )}
       </div>
@@ -146,7 +146,7 @@ export default async function SettingsPage() {
           <code>~/n8n-workflows/student-accommodation-payment-tracker.json</code>.
         </p>
         <p>
-          <Link href="/">Back to overview</Link>
+          <Link href="/">Back to dashboard</Link>
         </p>
       </div>
     </div>

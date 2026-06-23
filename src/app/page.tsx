@@ -1,12 +1,18 @@
 import Link from "next/link";
 import { IncomeExpenseChart } from "@/components/IncomeExpenseChart";
+import { NetTrendChart } from "@/components/NetTrendChart";
+import { PayerTotalsChart } from "@/components/PayerTotalsChart";
+import { PaymentCountChart } from "@/components/PaymentCountChart";
 import { SyncButton } from "@/components/SyncButton";
 import { EXPENSE_CATEGORY_LABELS } from "@/lib/constants";
 import {
   getAllTimeTotals,
   getChartData,
   getExpenseTotalsByCategory,
+  getMonthlyPaymentCount,
   getMonthlyTotals,
+  getNetTrend,
+  getPaymentsByPayer,
   getRecentExpenses,
   getRecentPayments,
 } from "@/lib/dashboard-data";
@@ -14,31 +20,51 @@ import { centsToRand, formatDate } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
 
-export default async function OverviewPage() {
-  const [totals, allTime, recentPayments, recentExpenses, chartData, byCategory] =
-    await Promise.all([
-      getMonthlyTotals(),
-      getAllTimeTotals(),
-      getRecentPayments(10),
-      getRecentExpenses(10),
-      getChartData(6),
-      getExpenseTotalsByCategory(),
-    ]);
+export default async function DashboardPage() {
+  const [
+    totals,
+    allTime,
+    recentPayments,
+    recentExpenses,
+    chartData,
+    netTrend,
+    paymentCounts,
+    byPayer,
+    byCategory,
+  ] = await Promise.all([
+    getMonthlyTotals(),
+    getAllTimeTotals(),
+    getRecentPayments(10),
+    getRecentExpenses(10),
+    getChartData(12),
+    getNetTrend(12),
+    getMonthlyPaymentCount(12),
+    getPaymentsByPayer(8),
+    getExpenseTotalsByCategory(),
+  ]);
 
   const topCategories = [...byCategory.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
+  const payerChartData = byPayer.map((p) => ({
+    payer: p.payer,
+    total: p.totalCents / 100,
+  }));
+
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Cash flow</h1>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-[var(--muted)]">
-            What came in vs what went out — {totals.month}
+            Cash flow trends and payments by bank reference — {totals.month}
           </p>
         </div>
-        <SyncButton label="Sync bank payments" />
+        <div className="flex flex-wrap gap-3">
+          <SyncButton label="Sync new payments" />
+          <SyncButton label="Sync all from Gmail" backfill />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -76,9 +102,55 @@ export default async function OverviewPage() {
         </p>
       </div>
 
-      <div className="card">
-        <h2 className="mb-4 text-lg font-semibold">Money in vs money out</h2>
-        <IncomeExpenseChart data={chartData} />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="card">
+          <h2 className="mb-4 text-lg font-semibold">Money in vs money out</h2>
+          <IncomeExpenseChart data={chartData} />
+        </div>
+        <div className="card">
+          <h2 className="mb-4 text-lg font-semibold">Net cash flow trend</h2>
+          <NetTrendChart data={netTrend} />
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="card">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Payments by reference</h2>
+            <Link href="/payments" className="text-sm">
+              View all
+            </Link>
+          </div>
+          <PayerTotalsChart data={payerChartData} />
+          {byPayer.length > 0 && (
+            <table className="data mt-4">
+              <thead>
+                <tr>
+                  <th>Reference / payer</th>
+                  <th>Payments</th>
+                  <th>Total</th>
+                  <th>Last</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byPayer.map((p) => (
+                  <tr key={p.payer}>
+                    <td>{p.payer}</td>
+                    <td>{p.count}</td>
+                    <td className="text-[var(--positive)]">
+                      {centsToRand(p.totalCents)}
+                    </td>
+                    <td>{p.lastDate ? formatDate(p.lastDate) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="card">
+          <h2 className="mb-4 text-lg font-semibold">Payment volume trend</h2>
+          <PaymentCountChart data={paymentCounts} />
+        </div>
       </div>
 
       {topCategories.length > 0 && (
@@ -107,7 +179,7 @@ export default async function OverviewPage() {
             <thead>
               <tr>
                 <th>Date</th>
-                <th>From</th>
+                <th>Reference</th>
                 <th>Amount</th>
               </tr>
             </thead>
@@ -115,7 +187,7 @@ export default async function OverviewPage() {
               {recentPayments.length === 0 ? (
                 <tr>
                   <td colSpan={3} className="text-[var(--muted)]">
-                    No payments yet — sync Gmail or add manually
+                    No payments yet — use Sync all from Gmail above
                   </td>
                 </tr>
               ) : (
